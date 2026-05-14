@@ -837,7 +837,7 @@ async function runAI(){
   var summary=camps.slice(0,30).map(function(c){return {codigo:c.codigo,producto:pName(c.producto),area:pArea(c.producto),tipo:c.tipo,budTotal:c.budTotal,effTotal:c.effTotal,leads:c.leads,wpp:c.wpp,cplV:cpl(c),sc:campScore(c)};});
   var prompt='Analizá estos datos de campañas de marketing en español y respondé con: 1. Resumen ejecutivo 2. Qué está funcionando bien 3. Puntos de atención 4. Recomendaciones (máx 5) 5. Análisis operativo\n\nDatos: '+camps.length+' campañas, Presupuesto $'+totB+', Invertido $'+totE+', Leads '+totL+', WPP '+totW+'\nDetalle: '+JSON.stringify(summary);
   try{
-    var resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}]})});
+    var resp=await fetch('https://mkt-ai-proxy.tcoppede.workers.dev/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}]})});
     var data=await resp.json();
     var text=data.content&&data.content[0]?data.content[0].text:'Sin respuesta.';
     el.innerHTML=text.split('\n\n').filter(function(s){return s.trim();}).map(function(s){
