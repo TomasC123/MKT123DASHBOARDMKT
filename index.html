@@ -452,8 +452,8 @@ function renderForm(){
     +'<div class="field ffc"><label>Notas</label><textarea id="f-notas" placeholder="Observaciones...">'+v('notas','')+'</textarea></div>'
     +'</div></div>'
 
-    +'<div class="card"><div class="ct">Archivos multimedia</div>'
-    +'<div class="notice">Subí a Drive o Cloudinary y pegá la URL acá.</div>'
+    +'<div class="card"><div class="ct">Link de Drive</div>'
+    +'<div class="notice">Pegá acá el link de la carpeta de Drive de esta campaña. El primero aparece como acceso directo en la lista.</div>'
     +'<div id="media-list">'+renderMediaList()+'</div>'
     +'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
     +'<input type="text" id="mu" placeholder="https://... URL" style="flex:1;min-width:180px;padding:7px 10px;border:1px solid var(--brdm);border-radius:var(--r);font-family:var(--mono);font-size:12px;background:var(--surf);color:var(--ink);outline:none">'
@@ -540,6 +540,7 @@ function renderLista(){
     +'<th style="text-align:right">Pres.</th><th style="text-align:right">Efec.</th>'
     +'<th style="text-align:right">CPL</th><th style="text-align:right">WPP</th>'
     +'<th style="text-align:right">Desvío</th><th style="text-align:right">Score</th>'
+    +'<th style="text-align:center">Drive</th>'
     +'</tr></thead><tbody>'
     +camps.map(function(c){
       var col=tColor(c.tipo),sc=campScore(c),dev=desvio(c);
@@ -556,6 +557,9 @@ function renderLista(){
         +'<td style="text-align:right">'+(wppV?'$'+wppV:'—')+'</td>'
         +'<td style="text-align:right">'+(dev!==null?'<span style="color:'+(dev>0?'var(--red)':dev<0?'var(--green)':'var(--dim)')+'">'+(dev>0?'+':'')+dev+'d</span>':'—')+'</td>'
         +'<td style="text-align:right">'+(sc!==null?'<span style="font-weight:500;color:'+scColor(sc)+'">'+sc+'</span>':'—')+'</td>'
+        +'<td style="text-align:center" onclick="event.stopPropagation()">'
+        +(c.media&&c.media.length?'<a href="'+c.media[0].url+'" target="_blank" title="'+(c.media[0].name||'Drive')+'" style="color:var(--blue);font-size:14px;text-decoration:none">↗</a>':'<span style="color:var(--faint)">—</span>')
+        +'</td>'
         +'</tr>';
     }).join('')+'</tbody></table></div>';
 }
