@@ -350,6 +350,14 @@ function toggleMailing(){
   document.querySelectorAll('.mf').forEach(function(e){e.style.display=isMailing?'':'none';});
 }
 
+function togglePriority(){
+  var el=document.getElementById('priority-fields');
+  var btn=document.getElementById('btn-priority');
+  if(!el||!btn)return;
+  var visible=el.style.display!=='none';
+  el.style.display=visible?'none':'contents';
+  btn.textContent=visible?'▼ Agregar calificación':'▲ Ocultar';
+}
 function calcDesvio(){
   var h=document.getElementById('desvio-hint');if(!h)return;
   var diff=dateDiff(gv('f-fecha-plan'),gv('f-fecha-real'));
@@ -418,6 +426,19 @@ function renderForm(){
     +'<span class="fhint">'+(c&&cpl(c)?'CPL: $'+cpl(c):'')+'</span></div>'
     +'<div class="field"><label>Contactos WhatsApp</label><input type="number" id="f-wpp" min="0" value="'+v('wpp','')+'" placeholder="Si corresponde">'
     +'<span class="fhint">'+(c&&cpcW(c)?'CPC: $'+cpcW(c):'')+'</span></div>'
+    // Prioridad leads - toggle for any area
+    +'<div class="field ffc" style="border-top:1px solid var(--brd);padding-top:12px;margin-top:4px;display:flex;align-items:center;justify-content:space-between">'
+    +'<label style="color:var(--dim)">Calificación de leads</label>'
+    +'<button type="button" class="btn btn-xs" onclick="togglePriority()" id="btn-priority">'
+    +(c&&(c.leadsAlta||c.leadsMedia||c.leadsBaja)?'▲ Ocultar':'▼ Agregar calificación')
+    +'</button></div>'
+    +'<div id="priority-fields" style="display:'+(c&&(c.leadsAlta||c.leadsMedia||c.leadsBaja)?'contents':'none')+'" class="ffc fg">'
+    +'<div class="field"><label>Leads ALTA prioridad</label><input type="number" id="f-leads-alta" min="0" value="'+v('leadsAlta','')+'" placeholder="0">'
+    +'<span class="fhint" style="color:var(--green)">'+(c&&c.leadsAlta&&c.effTotal?'CPL alta: $'+Math.round(c.effTotal/c.leadsAlta):'')+'</span></div>'
+    +'<div class="field"><label>Leads MEDIA prioridad</label><input type="number" id="f-leads-media" min="0" value="'+v('leadsMedia','')+'" placeholder="0"></div>'
+    +'<div class="field"><label>Leads BAJA prioridad</label><input type="number" id="f-leads-baja" min="0" value="'+v('leadsBaja','')+'" placeholder="0">'
+    +'<span class="fhint">'+(c&&c.leadsAlta&&c.leads?'Tasa calidad: '+Math.round(c.leadsAlta/c.leads*100)+'% ALTA':'')+'</span></div>'
+    +'</div>'
     // MAILING
     +'<div class="field ffc mf" style="display:'+(isMailing?'':'none')+'">'
     +'<label>Proveedor MAILING</label>'
@@ -476,6 +497,7 @@ function submitForm(){
     budDia:gn('f-bud-dia'),budDias:gn('f-bud-dias'),budTotal:gn('f-bud-total'),
     effDia:gn('f-eff-dia'),effDias:gn('f-eff-dias'),effTotal:gn('f-eff-total'),
     leads:gn('f-leads'),wpp:gn('f-wpp'),
+    leadsAlta:gn('f-leads-alta'),leadsMedia:gn('f-leads-media'),leadsBaja:gn('f-leads-baja'),
     mailProvTipo:gv('f-mail-tipo'),mailProv:gv('f-mail-prov'),
     mailEnviados:gn('f-mail-env'),mailApertura:gn('f-mail-ap'),mailClicks:gn('f-mail-cl'),
     notas:gv('f-notas'),media:fUploads,updatedAt:new Date().toISOString()
@@ -590,6 +612,17 @@ function openDetail(id){
       :'<div class="di"><div class="dlb">Leads</div><div style="font-family:var(--serif);font-size:22px">'+(c.leads!=null?c.leads:'—')+'</div></div>'
        +'<div class="di"><div class="dlb">WPP</div><div style="font-family:var(--serif);font-size:22px">'+(c.wpp!=null?c.wpp:'—')+'</div></div>'
     )
+    +((c.leadsAlta||c.leadsMedia||c.leadsBaja)?
+      '<div class="di dfc" style="background:var(--goldg);border-radius:var(--r);padding:10px 14px;margin-top:4px">'
+      +'<div class="dlb" style="color:var(--gold);margin-bottom:8px">Calificación de leads</div>'
+      +'<div style="display:flex;gap:20px;flex-wrap:wrap">'
+      +'<div><div style="font-size:10px;color:var(--green);text-transform:uppercase;letter-spacing:.08em">ALTA</div><div style="font-family:var(--serif);font-size:22px">'+(c.leadsAlta||0)+'</div></div>'
+      +'<div><div style="font-size:10px;color:var(--gold);text-transform:uppercase;letter-spacing:.08em">MEDIA</div><div style="font-family:var(--serif);font-size:22px">'+(c.leadsMedia||0)+'</div></div>'
+      +'<div><div style="font-size:10px;color:var(--red);text-transform:uppercase;letter-spacing:.08em">BAJA</div><div style="font-family:var(--serif);font-size:22px">'+(c.leadsBaja||0)+'</div></div>'
+      +(c.leadsAlta&&c.leads?'<div><div style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em">Tasa calidad</div><div style="font-family:var(--serif);font-size:22px">'+Math.round(c.leadsAlta/c.leads*100)+'%</div></div>':'')
+      +(c.leadsAlta&&c.effTotal?'<div><div style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em">CPL ALTA</div><div style="font-family:var(--serif);font-size:22px">$'+Math.round(c.effTotal/c.leadsAlta)+'</div></div>':'')
+      +'</div></div>'
+    :'')
     +(c.notas?'<div class="di dfc"><div class="dlb">Notas</div><div style="font-size:12px;color:var(--dim);line-height:1.6">'+c.notas+'</div></div>':'')
     +'</div>';
 
@@ -702,6 +735,23 @@ function renderFinanciero(camps,el){
       +Object.entries(byArea).sort(function(a,b){return b[1].eff-a[1].eff;}).map(function(e){
         var v=e[1];return '<tr><td><strong>'+e[0]+'</strong></td><td style="text-align:right">'+v.count+'</td><td style="text-align:right">$'+v.bud.toLocaleString()+'</td><td style="text-align:right">$'+v.eff.toLocaleString()+'</td><td style="text-align:right">'+v.leads+'</td><td style="text-align:right">'+(v.leads&&v.eff?'$'+Math.round(v.eff/v.leads):'—')+'</td><td style="text-align:right">'+v.wpp+'</td></tr>';
       }).join('')+'</tbody></table></div>';
+  }
+
+  // ING leads quality summary
+  var ingCamps=camps.filter(function(c){return c.leadsAlta||c.leadsMedia||c.leadsBaja;});
+  if(ingCamps.length){
+    var totAlta=0,totMedia=0,totBaja=0,totIngEff=0;
+    ingCamps.forEach(function(c){totAlta+=c.leadsAlta||0;totMedia+=c.leadsMedia||0;totBaja+=c.leadsBaja||0;if(c.effTotal)totIngEff+=c.effTotal;});
+    var totIngLeads=totAlta+totMedia+totBaja;
+    var tasaCal=totIngLeads?Math.round(totAlta/totIngLeads*100):null;
+    var cplAlta=totAlta&&totIngEff?Math.round(totIngEff/totAlta):null;
+    html+='<div class="card" style="border-left:3px solid var(--gold)"><div class="ct" style="color:var(--gold)">INGENIERÍA · Calificación de leads</div>'
+      +'<div class="kpi-grid">'
+      +'<div class="kpi green"><div class="kl">Leads ALTA</div><div class="kv">'+totAlta+'</div><div class="ks">'+(cplAlta?'CPL $'+cplAlta:'')+'</div></div>'
+      +'<div class="kpi gold"><div class="kl">Leads MEDIA</div><div class="kv">'+totMedia+'</div></div>'
+      +'<div class="kpi red"><div class="kl">Leads BAJA</div><div class="kv">'+totBaja+'</div></div>'
+      +'<div class="kpi '+(tasaCal>=50?'green':tasaCal>=30?'gold':'red')+'"><div class="kl">Tasa de calidad</div><div class="kv">'+(tasaCal?tasaCal+'%':'—')+'</div><div class="ks">% leads ALTA</div></div>'
+      +'</div></div>';
   }
 
   var mailCamps=camps.filter(function(c){return c.tipo==='MAILING';});
