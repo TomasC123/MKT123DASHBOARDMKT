@@ -96,6 +96,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-thumb{background:var(--brd);border-radius:3px}
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 <div class="shell">
@@ -121,6 +122,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
           <select class="fs" id="dp" onchange="renderDash()"><option value="">Todos los productos</option></select>
           <select class="fs" id="dt2" onchange="renderDash()"><option value="">Todos los tipos</option></select>
           <button class="btn" onclick="exportPDF()">↓ PDF</button>
+          <button class="btn" onclick="exportExcel()">↓ Excel</button>
           <button class="btn btn-ink" onclick="openAI()">✦ IA</button>
         </div>
       </div>
@@ -856,6 +858,77 @@ function renderOperativo(camps,el){
   }
 
   el.innerHTML=html;
+}
+
+// ── EXCEL ────────────────────────────────────────────
+function exportExcel(){
+  var camps=getDashCamps();
+  if(!camps.length){alert('No hay campañas para exportar.');return;}
+
+  // Main sheet: campaigns
+  var rows=[['Código','Fecha','Producto','Área','Tipo','Modo','F. Planificada','F. Real','Desvío (días)',
+    'Pres. Diario','Pres. Días','Pres. Total','Efec. Diario','Efec. Días','Efec. Total',
+    'Leads','WPP','CPL','CPC WPP','Eficiencia %','Score',
+    'Leads ALTA','Leads MEDIA','Leads BAJA','Tasa Calidad %','CPL ALTA',
+    'Mail Proveedor Tipo','Mail Proveedor','Mail Enviados','Mail Apertura %','Mail Clicks',
+    'Notas','Drive']];
+
+  camps.forEach(function(c){
+    var dev=desvio(c);
+    var cplV=cpl(c),wppV=cpcW(c),effV=effPct(c),sc=campScore(c);
+    var tasaCal=c.leadsAlta&&c.leads?Math.round(c.leadsAlta/c.leads*100):null;
+    var cplAlta=c.leadsAlta&&c.effTotal?Math.round(c.effTotal/c.leadsAlta):null;
+    rows.push([
+      c.codigo, c.fecha, pName(c.producto), pArea(c.producto), c.tipo, c.modo||'',
+      c.fechaPlan||'', c.fechaReal||'', dev!==null?dev:0,
+      c.budDia||'', c.budDias||'', c.budTotal||'',
+      c.effDia||'', c.effDias||'', c.effTotal||'',
+      c.leads||'', c.wpp||'', cplV||'', wppV||'', effV||'', sc||'',
+      c.leadsAlta||'', c.leadsMedia||'', c.leadsBaja||'', tasaCal||'', cplAlta||'',
+      c.mailProvTipo||'', c.mailProv||'', c.mailEnviados||'', c.mailApertura||'', c.mailClicks||'',
+      c.notas||'', c.media&&c.media.length?c.media[0].url:''
+    ]);
+  });
+
+  // Summary by area
+  var byArea={};
+  camps.forEach(function(c){
+    var a=pArea(c.producto)||'Otros';
+    if(!byArea[a])byArea[a]={camps:0,bud:0,eff:0,leads:0,wpp:0,alta:0};
+    byArea[a].camps++;
+    if(c.budTotal)byArea[a].bud+=c.budTotal;
+    if(c.effTotal)byArea[a].eff+=c.effTotal;
+    if(c.leads)byArea[a].leads+=c.leads;
+    if(c.wpp)byArea[a].wpp+=c.wpp;
+    if(c.leadsAlta)byArea[a].alta+=c.leadsAlta;
+  });
+  var areaRows=[['Área','Campañas','Presupuesto','Efectivo','Leads','CPL','WPP','CPC WPP','Leads ALTA','Tasa Calidad %']];
+  Object.entries(byArea).forEach(function(e){
+    var v=e[1];
+    var cplA=v.leads&&v.eff?Math.round(v.eff/v.leads):null;
+    var wppA=v.wpp&&v.eff?Math.round(v.eff/v.wpp):null;
+    var tasa=v.alta&&v.leads?Math.round(v.alta/v.leads*100):null;
+    areaRows.push([e[0],v.camps,v.bud,v.eff,v.leads,cplA||'',v.wpp,wppA||'',v.alta,tasa||'']);
+  });
+
+  // Build workbook
+  var wb=XLSX.utils.book_new();
+  var ws1=XLSX.utils.aoa_to_sheet(rows);
+  var ws2=XLSX.utils.aoa_to_sheet(areaRows);
+
+  // Column widths
+  ws1['!cols']=[{wch:30},{wch:12},{wch:18},{wch:12},{wch:8},{wch:12},{wch:12},{wch:12},{wch:10},
+    {wch:12},{wch:10},{wch:12},{wch:12},{wch:10},{wch:12},
+    {wch:8},{wch:8},{wch:8},{wch:10},{wch:12},{wch:8},
+    {wch:12},{wch:12},{wch:12},{wch:14},{wch:10},
+    {wch:14},{wch:16},{wch:14},{wch:14},{wch:12},{wch:30},{wch:40}];
+  ws2['!cols']=[{wch:14},{wch:10},{wch:14},{wch:14},{wch:8},{wch:8},{wch:8},{wch:10},{wch:12},{wch:14}];
+
+  XLSX.utils.book_append_sheet(wb,ws1,'Campañas');
+  XLSX.utils.book_append_sheet(wb,ws2,'Por área');
+
+  var fname='Campañas_'+new Date().toISOString().slice(0,10)+'.xlsx';
+  XLSX.writeFile(wb,fname);
 }
 
 // ── PDF ──────────────────────────────────────────────
