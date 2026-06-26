@@ -167,6 +167,32 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       <div id="mailings-content"></div>
     </div>
 
+    <!-- CANCEL MODAL -->
+    <div class="mbg" id="mod-cancel">
+      <div class="modal" style="max-width:480px">
+        <div class="mh"><div class="mt2">Cancelar campaña</div><button class="btn btn-sm" onclick="document.getElementById('mod-cancel').classList.remove('on')">✕</button></div>
+        <div class="mb2">
+          <div class="field" style="margin-bottom:14px">
+            <label>Categoría</label>
+            <select id="cancel-cat" style="padding:8px 10px;border:1px solid var(--brdm);border-radius:var(--r);font-family:var(--mono);font-size:12px;background:var(--surf);color:var(--ink);outline:none;width:100%">
+              <option value="Operativa">Operativa — problema interno</option>
+              <option value="Presupuesto">Presupuesto — sin fondos</option>
+              <option value="Estrategia">Estrategia — cambio de plan</option>
+              <option value="Fuerza mayor">Fuerza mayor — externo</option>
+            </select>
+          </div>
+          <div class="field" style="margin-bottom:20px">
+            <label>Detalle (opcional)</label>
+            <textarea id="cancel-motivo" placeholder="Describí el motivo..." style="padding:8px 10px;border:1px solid var(--brdm);border-radius:var(--r);font-family:var(--mono);font-size:12px;background:var(--surf);color:var(--ink);outline:none;width:100%;height:80px;resize:vertical"></textarea>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-danger" id="cancel-confirm-btn">Confirmar cancelación</button>
+            <button class="btn" onclick="document.getElementById('mod-cancel').classList.remove('on')">Volver</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- MAILING FORM MODAL -->
     <div class="mbg" id="mod-mailing-form">
       <div class="modal">
@@ -656,12 +682,7 @@ function openDetail(id){
   }else{
     cancelBtn.textContent='Cancelar campaña';
     cancelBtn.style.background='';cancelBtn.style.color='';
-    cancelBtn.onclick=function(){
-      var motivo=prompt('Motivo de cancelación:','');
-      if(motivo===null)return;
-      c.cancelada=true;c.motivoCancelacion=motivo;
-      syncSave();closeDetail();renderLista();
-    };
+    cancelBtn.onclick=function(){openCancelModal(id);};
   }
 
   var kpis=[{l:'Presupuestado',v:fmt(c.budTotal),c:'blue'},{l:'Efectivo',v:fmt(c.effTotal),c:'green'}];
@@ -713,7 +734,13 @@ function openDetail(id){
       +'</div></div>'
     :'')
     +(c.segmentacion?'<div class="di dfc"><div class="dlb">Segmentación</div><div style="font-size:12px;color:var(--dim)">'+c.segmentacion+'</div></div>':'')
-    +(c.cancelada?'<div class="di dfc"><div class="dlb" style="color:var(--red)">Motivo cancelación</div><div style="font-size:12px;color:var(--red)">'+(c.motivoCancelacion||'Sin motivo registrado')+'</div></div>':'')
+    +(c.cancelada?'<div class="di dfc" style="background:var(--rbg);border-radius:var(--r);padding:10px 14px;margin-top:4px">'
+      +'<div class="dlb" style="color:var(--red);margin-bottom:6px">Cancelación</div>'
+      +'<div style="display:flex;gap:16px;flex-wrap:wrap">'
+      +'<div><div style="font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--red);margin-bottom:2px">Categoría</div><div style="font-size:12px;font-weight:500">'+(c.cancelCategoria||'—')+'</div></div>'
+      +(c.fechaCancelacion?'<div><div style="font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--red);margin-bottom:2px">Fecha</div><div style="font-size:12px">'+fDate(c.fechaCancelacion)+'</div></div>':'')
+      +(c.motivoCancelacion?'<div style="flex:1;min-width:200px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--red);margin-bottom:2px">Detalle</div><div style="font-size:12px;color:var(--dim)">'+c.motivoCancelacion+'</div></div>':'')
+      +'</div></div>':'')
     +(c.notas?'<div class="di dfc"><div class="dlb">Notas</div><div style="font-size:12px;color:var(--dim);line-height:1.6">'+c.notas+'</div></div>':'')
     +'</div>';
 
@@ -722,6 +749,23 @@ function openDetail(id){
 }
 
 function closeDetail(){document.getElementById('mod-detail').classList.remove('on');detailId=null;}
+
+function openCancelModal(id){
+  document.getElementById('mod-cancel').classList.add('on');
+  document.getElementById('cancel-motivo').value='';
+  document.getElementById('cancel-cat').value='Operativa';
+  document.getElementById('cancel-confirm-btn').onclick=function(){
+    var c=G.campaigns.find(function(x){return x.id===id;});
+    if(!c)return;
+    c.cancelada=true;
+    c.cancelCategoria=document.getElementById('cancel-cat').value;
+    c.motivoCancelacion=document.getElementById('cancel-motivo').value.trim();
+    c.fechaCancelacion=new Date().toISOString().slice(0,10);
+    syncSave();
+    document.getElementById('mod-cancel').classList.remove('on');
+    closeDetail();renderLista();
+  };
+}
 document.getElementById('mod-detail').onclick=function(e){if(e.target===e.currentTarget)closeDetail();};
 
 // ── DASHBOARD ────────────────────────────────────────
@@ -955,6 +999,45 @@ function renderOperativo(camps,el){
           +'<td style="font-size:11px">'+c.codigo+'</td><td>'+pName(c.producto)+'</td>'
           +'<td style="color:var(--dim)">'+fDate(c.fechaPlan)+'</td><td>'+c.tipo+'</td></tr>';
       }).join('')+'</tbody></table></div>';
+  }
+
+  // Cancelled campaigns section
+  var canceladas=camps.filter(function(c){return c.cancelada;});
+  if(canceladas.length){
+    var byCategoria={};
+    canceladas.forEach(function(c){
+      var cat=c.cancelCategoria||'Sin categoría';
+      if(!byCategoria[cat])byCategoria[cat]=[];
+      byCategoria[cat].push(c);
+    });
+
+    html+='<div class="card" style="border-left:3px solid var(--red)"><div class="ct" style="color:var(--red)">Campañas canceladas · '+canceladas.length+'</div>';
+
+    // Summary by category
+    html+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">';
+    var catColors={'Operativa':'var(--red)','Presupuesto':'var(--gold)','Estrategia':'var(--blue)','Fuerza mayor':'var(--dim)'};
+    Object.entries(byCategoria).forEach(function(e){
+      var col=catColors[e[0]]||'var(--dim)';
+      html+='<div style="padding:8px 14px;border-radius:var(--r);background:var(--muted);border:1px solid var(--brd)">'
+        +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:'+col+';margin-bottom:4px">'+e[0]+'</div>'
+        +'<div style="font-family:var(--serif);font-size:22px">'+e[1].length+'</div>'
+        +'</div>';
+    });
+    html+='</div>';
+
+    html+='<table class="dt"><thead><tr><th>Código</th><th>Producto</th><th>Categoría</th><th>Fecha cancel.</th><th>Detalle</th><th style="text-align:right">Pres.</th></tr></thead><tbody>'
+      +canceladas.map(function(c){
+        var col=catColors[c.cancelCategoria]||'var(--dim)';
+        return '<tr data-id="'+c.id+'" onclick="openDetail(this.dataset.id)">'
+          +'<td style="font-size:11px">'+c.codigo+'</td>'
+          +'<td>'+pName(c.producto)+'</td>'
+          +'<td><span style="font-size:10px;font-weight:500;color:'+col+'">'+(c.cancelCategoria||'—')+'</span></td>'
+          +'<td style="color:var(--dim);font-size:11px">'+fDate(c.fechaCancelacion)+'</td>'
+          +'<td style="font-size:11px;color:var(--dim);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(c.motivoCancelacion||'—')+'</td>'
+          +'<td style="text-align:right">'+(c.budTotal?fmt(c.budTotal):'—')+'</td>'
+          +'</tr>';
+      }).join('')
+      +'</tbody></table></div>';
   }
 
   el.innerHTML=html;
