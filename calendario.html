@@ -146,7 +146,7 @@ td.prod-cell.selected .cell-pill{outline:2px solid rgba(90,61,184,.5);outline-of
       <div class="period-row">
         <select id="sb-month" style="flex:1">
           <option value="0">Enero</option><option value="1">Febrero</option><option value="2">Marzo</option>
-          <option value="3">Abril</option><option value="4" selected>Mayo</option><option value="5">Junio</option>
+          <option value="3">Abril</option><option value="4">Mayo</option><option value="5">Junio</option>
           <option value="6">Julio</option><option value="7">Agosto</option><option value="8">Septiembre</option>
           <option value="9">Octubre</option><option value="10">Noviembre</option><option value="11">Diciembre</option>
         </select>
@@ -222,7 +222,8 @@ let GLOBAL = {
   calendars:{}
 };
 
-let S = { month:4, year:2026, currency:'USD', customDays:null, activeProducts:null, cells:{} };
+let _now=new Date();
+let S = { month:_now.getMonth(), year:_now.getFullYear(), currency:'USD', customDays:null, activeProducts:null, cells:{} };
 let currentView='calendar', activeModal=null, selectedCells=new Set(), bulkMode=false;
 
 function calKey(m,y){ return y+'-'+m; }
