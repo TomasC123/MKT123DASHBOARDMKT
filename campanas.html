@@ -106,6 +106,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       <button class="sb-btn on" onclick="goTo('dashboard')" id="nav-dashboard"><span>◈</span> Dashboard</button>
       <button class="sb-btn" onclick="goTo('lista')" id="nav-lista"><span>◫</span> Campañas</button>
       <button class="sb-btn" onclick="newCamp()" id="nav-nueva"><span>＋</span> Nueva campaña</button>
+      <button class="sb-btn" onclick="goTo('mailings')" id="nav-mailings"><span>✉</span> Mailings</button>
       <button class="sb-btn" onclick="goTo('config')" id="nav-config"><span>⊙</span> Configuración</button>
     </nav>
     <div class="sb-sec"><span class="sb-lbl">Tipos</span><div id="sb-tipos"></div></div>
@@ -156,6 +157,26 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       </div>
       <div id="form-content"></div>
     </div>
+    <div class="page" id="page-mailings">
+      <div class="ph"><h1 class="pt">Mailings</h1>
+        <div class="pa">
+          <button class="btn btn-ink" onclick="newMailing()">+ Nuevo mailing</button>
+        </div>
+      </div>
+      <div id="mailings-content"></div>
+    </div>
+
+    <!-- MAILING FORM MODAL -->
+    <div class="mbg" id="mod-mailing-form">
+      <div class="modal">
+        <div class="mh">
+          <div class="mt2" id="mf-title">Nuevo mailing</div>
+          <button class="btn btn-sm" onclick="closeMForm()">✕</button>
+        </div>
+        <div class="mb2" id="mf-body"></div>
+      </div>
+    </div>
+
     <div class="page" id="page-config">
       <div class="ph"><h1 class="pt">Configuración</h1>
         <div class="pa"><button class="btn btn-ink save-btn" onclick="doSave()">Guardar cambios</button></div>
@@ -219,7 +240,8 @@ let G={
     {id:'m1',name:'Reel'},{id:'m2',name:'Imagen'},
     {id:'m3',name:'Combinación'},{id:'m4',name:'Otro'}
   ],
-  campaigns:[]
+  campaigns:[],
+  mailings:[]
 };
 
 // editId is NEVER reset inside nav — only explicitly
@@ -263,6 +285,7 @@ async function syncLoad(){
       if(rec.tipos&&rec.tipos.length)G.tipos=rec.tipos;
       if(rec.modos&&rec.modos.length)G.modos=rec.modos;
       if(rec.campaigns)G.campaigns=rec.campaigns;
+      if(rec.mailings)G.mailings=rec.mailings;
     }
     renderAll();
     ss2('ok','Sincronizado · '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}));
@@ -304,6 +327,7 @@ function goTo(p){
   if(p==='dashboard')renderDash();
   else if(p==='lista'){renderLista();}
   else if(p==='nueva'){renderForm();}
+  else if(p==='mailings')renderMailings();
   else if(p==='config')renderConfig();
 }
 
@@ -706,8 +730,23 @@ function renderFinanciero(camps,el){
   var byCPL=camps.filter(function(c){return c.leads&&c.effTotal;}).map(function(c){return {cod:c.codigo,leads:c.leads,eff:c.effTotal,cplV:Math.round(c.effTotal/c.leads)};}).sort(function(a,b){return a.cplV-b.cplV;}).slice(0,5);
   var mkeys=Object.keys(byMonth).sort().slice(-6);
 
+  // Build tipo breakdown for total invertido card
+  var tipoBreakdown=Object.entries(byTipo).filter(function(e){return e[1].eff>0;}).sort(function(a,b){return b[1].eff-a[1].eff;}).map(function(e){
+    var col=tColor(e[0]);
+    return '<span style="display:inline-flex;align-items:center;gap:4px;font-size:9px;color:var(--dim)">'
+      +'<span style="width:6px;height:6px;border-radius:50%;background:'+col+';display:inline-block;flex-shrink:0"></span>'
+      +e[0]+' $'+e[1].eff.toLocaleString()
+      +'</span>';
+  }).join('<span style="color:var(--faint);margin:0 3px">·</span>');
+
   var html='<div class="kpi-grid">'
-    +'<div class="kpi green"><div class="kl">Total invertido</div><div class="kv">$'+totE.toLocaleString()+'</div><div class="ks">'+camps.length+' campañas</div></div>'
+    +'<div class="kpi green" style="grid-column:1/-1 !important"><div class="kl">Total invertido</div>'
+    +'<div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap">'
+    +'<div class="kv">$'+totE.toLocaleString()+'</div>'
+    +'<div style="font-size:10px;color:var(--dim)">'+camps.length+' campañas</div>'
+    +'</div>'
+    +(tipoBreakdown?'<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">'+tipoBreakdown+'</div>':'')
+    +'</div>'
     +'<div class="kpi blue"><div class="kl">Presupuestado</div><div class="kv">$'+totB.toLocaleString()+'</div><div class="ks" style="color:'+(variance>0?'var(--red)':'var(--green)')+'">'+(variance>0?'▲':'▼')+' $'+Math.abs(variance).toLocaleString()+'</div></div>'
     +'<div class="kpi gold"><div class="kl">CPL promedio</div><div class="kv">'+(totCPL?'$'+totCPL:'—')+'</div><div class="ks">'+totL+' leads</div></div>'
     +'<div class="kpi purple"><div class="kl">CPC WhatsApp</div><div class="kv">'+(totWPC?'$'+totWPC:'—')+'</div><div class="ks">'+totW+' contactos</div></div>'
@@ -1092,6 +1131,165 @@ function doJSONImport(){
     res.innerHTML='<span style="color:var(--green)">✓ '+added+' importadas.</span>'+(skipped?' '+skipped+' ya existían.':'');
     setTimeout(function(){goTo('lista');},1500);
   }catch(err){res.textContent='Error: '+err.message;}
+}
+
+// ── MAILINGS ─────────────────────────────────────────
+let editMailId=null;
+
+function newMailing(){editMailId=null;openMForm();}
+function editMailing(id){editMailId=id;openMForm();}
+function closeMForm(){document.getElementById('mod-mailing-form').classList.remove('on');editMailId=null;}
+document.getElementById('mod-mailing-form').onclick=function(e){if(e.target===e.currentTarget)closeMForm();};
+
+function openMForm(){
+  var m=editMailId?G.mailings.find(function(x){return x.id===editMailId;}):null;
+  document.getElementById('mf-title').textContent=editMailId?'Editar mailing':'Nuevo mailing';
+  var v=function(f,d){return m&&m[f]!==undefined&&m[f]!==null&&m[f]!==''?m[f]:d;};
+  var today=new Date().toISOString().slice(0,10);
+
+  var html='<div class="fg" style="margin-bottom:14px">'
+    +'<div class="field"><label>Fecha</label><input type="date" id="mf-fecha" value="'+v('fecha',today)+'"></div>'
+    +'<div class="field"><label>Nombre / Asunto</label><input type="text" id="mf-nombre" value="'+v('nombre','')+'" placeholder="Ej: Promo Mayo Weed It..."></div>'
+    +'<div class="field"><label>Producto</label><select id="mf-producto">'
+    +'<option value="">Seleccionar...</option>'
+    +G.products.map(function(p){return '<option value="'+p.id+'"'+(v('producto','')==p.id?' selected':'')+'>'+p.name+' ('+p.area+')</option>';}).join('')
+    +'</select></div>'
+    +'<div class="field"><label>Proveedor tipo</label><select id="mf-prov-tipo">'
+    +'<option value="">—</option>'
+    +'<option value="Interno"'+(v('provTipo','')==='Interno'?' selected':'')+'>Interno</option>'
+    +'<option value="Externo"'+(v('provTipo','')==='Externo'?' selected':'')+'>Externo</option>'
+    +'</select></div>'
+    +'<div class="field"><label>Proveedor nombre</label><input type="text" id="mf-prov" value="'+v('prov','')+'" placeholder="Ej: Mailchimp..."></div>'
+    +'<div class="field"><label>Costo ($)</label><input type="number" id="mf-costo" min="0" value="'+v('costo','')+'"></div>'
+    +'</div>'
+    +'<div class="fg fg3" style="margin-bottom:14px">'
+    +'<div class="field"><label>Enviados</label><input type="number" id="mf-env" min="0" value="'+v('enviados','')+'" oninput="calcMailMetrics()"></div>'
+    +'<div class="field"><label>Aperturas</label><input type="number" id="mf-ap" min="0" value="'+v('aperturas','')+'" oninput="calcMailMetrics()">'
+    +'<span class="fhint" id="mf-ap-pct">'+(m&&m.enviados&&m.aperturas?Math.round(m.aperturas/m.enviados*100)+'% apertura':'')+'</span></div>'
+    +'<div class="field"><label>Clicks</label><input type="number" id="mf-cl" min="0" value="'+v('clicks','')+'" oninput="calcMailMetrics()">'
+    +'<span class="fhint" id="mf-cl-pct">'+(m&&m.enviados&&m.clicks?Math.round(m.clicks/m.enviados*100)+'% CTR':'')+'</span></div>'
+    +'<div class="field"><label>Consultas / Leads</label><input type="number" id="mf-leads" min="0" value="'+v('leads','')+'"></div>'
+    +'<div class="field"><label>Base de datos</label><input type="text" id="mf-base" value="'+v('base','')+'" placeholder="Ej: clientes activos..."></div>'
+    +'<div class="field"><label>Notas</label><input type="text" id="mf-notas" value="'+v('notas','')+'"></div>'
+    +'</div>'
+    +'<div style="display:flex;gap:10px;flex-wrap:wrap">'
+    +'<button class="btn btn-ink" onclick="submitMailing()">'+(editMailId?'Guardar cambios':'Crear mailing')+'</button>'
+    +'<button class="btn" onclick="closeMForm()">Cancelar</button>'
+    +(editMailId?'<button class="btn btn-danger" style="margin-left:auto" onclick="deleteMailing()">Eliminar</button>':'')
+    +'</div>';
+
+  document.getElementById('mf-body').innerHTML=html;
+  document.getElementById('mod-mailing-form').classList.add('on');
+}
+
+function calcMailMetrics(){
+  var env=parseFloat(document.getElementById('mf-env').value)||0;
+  var ap=parseFloat(document.getElementById('mf-ap').value)||0;
+  var cl=parseFloat(document.getElementById('mf-cl').value)||0;
+  var apH=document.getElementById('mf-ap-pct');
+  var clH=document.getElementById('mf-cl-pct');
+  if(apH)apH.textContent=env&&ap?Math.round(ap/env*100)+'% apertura':'';
+  if(clH)clH.textContent=env&&cl?Math.round(cl/env*100)+'% CTR':'';
+}
+
+function submitMailing(){
+  var fecha=document.getElementById('mf-fecha').value;
+  var nombre=document.getElementById('mf-nombre').value.trim();
+  if(!fecha||!nombre){alert('Completá Fecha y Nombre.');return;}
+  var d=new Date(fecha+'T00:00:00');
+  var mail={
+    id:editMailId||('m'+Date.now()),
+    fecha:fecha,mes:d.getMonth(),anio:d.getFullYear(),
+    nombre:nombre,
+    producto:document.getElementById('mf-producto').value,
+    provTipo:document.getElementById('mf-prov-tipo').value,
+    prov:document.getElementById('mf-prov').value,
+    costo:parseFloat(document.getElementById('mf-costo').value)||null,
+    enviados:parseFloat(document.getElementById('mf-env').value)||null,
+    aperturas:parseFloat(document.getElementById('mf-ap').value)||null,
+    clicks:parseFloat(document.getElementById('mf-cl').value)||null,
+    leads:parseFloat(document.getElementById('mf-leads').value)||null,
+    base:document.getElementById('mf-base').value,
+    notas:document.getElementById('mf-notas').value,
+    updatedAt:new Date().toISOString()
+  };
+  if(editMailId){var idx=G.mailings.findIndex(function(x){return x.id===editMailId;});if(idx>=0)G.mailings[idx]=mail;}
+  else G.mailings.unshift(mail);
+  editMailId=null;
+  syncSave();closeMForm();renderMailings();
+}
+
+function deleteMailing(){
+  if(!editMailId||!confirm('¿Eliminar este mailing?'))return;
+  G.mailings=G.mailings.filter(function(m){return m.id!==editMailId;});
+  editMailId=null;syncSave();closeMForm();renderMailings();
+}
+
+function renderMailings(){
+  var el=document.getElementById('mailings-content');if(!el)return;
+  var ms=G.mailings;
+
+  if(!ms.length){
+    el.innerHTML='<div class="empty"><p>No hay mailings cargados.</p><button class="btn btn-ink" onclick="newMailing()" style="margin-top:12px">+ Nuevo mailing</button></div>';
+    return;
+  }
+
+  // KPIs
+  var totEnv=0,totAp=0,totCl=0,totCosto=0,totLeads=0,apN=0;
+  ms.forEach(function(m){
+    if(m.enviados)totEnv+=m.enviados;
+    if(m.aperturas)totAp+=m.aperturas;
+    if(m.clicks)totCl+=m.clicks;
+    if(m.costo)totCosto+=m.costo;
+    if(m.leads)totLeads+=m.leads;
+    if(m.enviados&&m.aperturas)apN++;
+  });
+  var avgAp=totEnv&&totAp?Math.round(totAp/totEnv*100):null;
+  var avgCTR=totEnv&&totCl?Math.round(totCl/totEnv*100):null;
+  var cpcM=totCl&&totCosto?Math.round(totCosto/totCl):null;
+  var cplM=totLeads&&totCosto?Math.round(totCosto/totLeads):null;
+
+  var html='<div class="kpi-grid">'
+    +'<div class="kpi gold"><div class="kl">Total enviados</div><div class="kv">'+totEnv.toLocaleString()+'</div><div class="ks">'+ms.length+' mailings</div></div>'
+    +'<div class="kpi '+(avgAp?'green':'neutral')+'"><div class="kl">Apertura prom.</div><div class="kv">'+(avgAp?avgAp+'%':'—')+'</div><div class="ks">'+totAp.toLocaleString()+' aperturas</div></div>'
+    +'<div class="kpi '+(avgCTR?'green':'neutral')+'"><div class="kl">CTR promedio</div><div class="kv">'+(avgCTR?avgCTR+'%':'—')+'</div><div class="ks">'+totCl.toLocaleString()+' clicks</div></div>'
+    +'<div class="kpi blue"><div class="kl">Total invertido</div><div class="kv">'+(totCosto?'$'+totCosto.toLocaleString():'—')+'</div></div>'
+    +'<div class="kpi '+(cpcM?'purple':'neutral')+'"><div class="kl">Costo/click</div><div class="kv">'+(cpcM?'$'+cpcM:'—')+'</div></div>'
+    +'<div class="kpi '+(cplM?'gold':'neutral')+'"><div class="kl">CPL mailing</div><div class="kv">'+(cplM?'$'+cplM:'—')+'</div><div class="ks">'+totLeads+' leads</div></div>'
+    +'</div>';
+
+  // Table
+  html+='<div class="tw"><div style="overflow-x:auto"><table class="dt"><thead><tr>'
+    +'<th>Fecha</th><th>Nombre</th><th>Producto</th><th>Proveedor</th>'
+    +'<th style="text-align:right">Enviados</th><th style="text-align:right">Apertura</th>'
+    +'<th style="text-align:right">CTR</th><th style="text-align:right">Clicks</th>'
+    +'<th style="text-align:right">Leads</th><th style="text-align:right">Costo</th>'
+    +'<th style="text-align:right">CPC</th><th></th>'
+    +'</tr></thead><tbody>'
+    +ms.map(function(m){
+      var ap=m.enviados&&m.aperturas?Math.round(m.aperturas/m.enviados*100):null;
+      var ctr=m.enviados&&m.clicks?Math.round(m.clicks/m.enviados*100):null;
+      var cpc=m.clicks&&m.costo?Math.round(m.costo/m.clicks):null;
+      return '<tr>'
+        +'<td style="color:var(--dim);font-size:11px">'+fDate(m.fecha)+'</td>'
+        +'<td><strong style="font-size:12px">'+m.nombre+'</strong>'+(m.base?'<br><span style="font-size:10px;color:var(--faint)">'+m.base+'</span>':'')+'</td>'
+        +'<td style="font-size:11px">'+(pName(m.producto)||'—')+'</td>'
+        +'<td style="font-size:11px;color:var(--dim)">'+(m.provTipo||'')+(m.prov?' · '+m.prov:'')+'</td>'
+        +'<td style="text-align:right">'+fmtn(m.enviados)+'</td>'
+        +'<td style="text-align:right;color:'+(ap?ap>=20?'var(--green)':ap>=10?'var(--gold)':'var(--red)':'var(--faint)')+'">'+(ap?ap+'%':'—')+'</td>'
+        +'<td style="text-align:right;color:'+(ctr?'var(--ink)':'var(--faint)')+'">'+(ctr?ctr+'%':'—')+'</td>'
+        +'<td style="text-align:right">'+fmtn(m.clicks)+'</td>'
+        +'<td style="text-align:right">'+fmtn(m.leads)+'</td>'
+        +'<td style="text-align:right">'+(m.costo?'$'+m.costo.toLocaleString():'—')+'</td>'
+        +'<td style="text-align:right;color:var(--dim)">'+(cpc?'$'+cpc:'—')+'</td>'
+        +'<td style="text-align:right" onclick="event.stopPropagation()">'
+        +'<button class="btn btn-xs" data-mid="'+m.id+'" onclick="editMailing(this.dataset.mid)">✎</button>'
+        +'</td>'
+        +'</tr>';
+    }).join('')
+    +'</tbody></table></div></div>';
+
+  el.innerHTML=html;
 }
 
 // ── CONFIG ───────────────────────────────────────────
