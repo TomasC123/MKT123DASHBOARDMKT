@@ -751,6 +751,7 @@ function openDetail(id){
 function closeDetail(){document.getElementById('mod-detail').classList.remove('on');detailId=null;}
 
 function openCancelModal(id){
+  document.getElementById('mod-detail').classList.remove('on');
   document.getElementById('mod-cancel').classList.add('on');
   document.getElementById('cancel-motivo').value='';
   document.getElementById('cancel-cat').value='Operativa';
