@@ -107,6 +107,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       <button class="sb-btn" onclick="goTo('lista')" id="nav-lista"><span>◫</span> Campañas</button>
       <button class="sb-btn" onclick="newCamp()" id="nav-nueva"><span>＋</span> Nueva campaña</button>
       <button class="sb-btn" onclick="goTo('mailings')" id="nav-mailings"><span>✉</span> Mailings</button>
+      <button class="sb-btn" onclick="goTo('ventas')" id="nav-ventas"><span>$</span> Ventas</button>
       <button class="sb-btn" onclick="goTo('config')" id="nav-config"><span>⊙</span> Configuración</button>
     </nav>
     <div class="sb-sec"><span class="sb-lbl">Tipos</span><div id="sb-tipos"></div></div>
@@ -177,6 +178,26 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       </div>
     </div>
 
+    <div class="page" id="page-ventas">
+      <div class="ph"><h1 class="pt">Ventas</h1>
+        <div class="pa">
+          <button class="btn btn-ink" onclick="newVenta()">+ Nueva venta</button>
+        </div>
+      </div>
+      <div id="ventas-content"></div>
+    </div>
+
+    <!-- VENTA FORM MODAL -->
+    <div class="mbg" id="mod-venta-form">
+      <div class="modal">
+        <div class="mh">
+          <div class="mt2" id="vf-title">Nueva venta</div>
+          <button class="btn btn-sm" onclick="closeVForm()">✕</button>
+        </div>
+        <div class="mb2" id="vf-body"></div>
+      </div>
+    </div>
+
     <div class="page" id="page-config">
       <div class="ph"><h1 class="pt">Configuración</h1>
         <div class="pa"><button class="btn btn-ink save-btn" onclick="doSave()">Guardar cambios</button></div>
@@ -191,8 +212,9 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   <div class="modal">
     <div class="mh">
       <div class="mt2" id="dm-title"></div>
-      <div style="display:flex;gap:8px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-sm" id="dm-edit-btn">Editar</button>
+        <button class="btn btn-sm" id="dm-cancel-btn">Cancelar campaña</button>
         <button class="btn btn-sm btn-danger" id="dm-del-btn">Eliminar</button>
         <button class="btn btn-sm" onclick="closeDetail()">✕</button>
       </div>
@@ -241,7 +263,8 @@ let G={
     {id:'m3',name:'Combinación'},{id:'m4',name:'Otro'}
   ],
   campaigns:[],
-  mailings:[]
+  mailings:[],
+  ventas:[]
 };
 
 // editId is NEVER reset inside nav — only explicitly
@@ -286,6 +309,7 @@ async function syncLoad(){
       if(rec.modos&&rec.modos.length)G.modos=rec.modos;
       if(rec.campaigns)G.campaigns=rec.campaigns;
       if(rec.mailings)G.mailings=rec.mailings;
+      if(rec.ventas)G.ventas=rec.ventas;
     }
     renderAll();
     ss2('ok','Sincronizado · '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}));
@@ -328,6 +352,7 @@ function goTo(p){
   else if(p==='lista'){renderLista();}
   else if(p==='nueva'){renderForm();}
   else if(p==='mailings')renderMailings();
+  else if(p==='ventas')renderVentas();
   else if(p==='config')renderConfig();
 }
 
@@ -618,9 +643,26 @@ function openDetail(id){
   var cpc=c.mailClicks&&c.effTotal?Math.round(c.effTotal/c.mailClicks):null;
   var variance=c.effTotal!=null&&c.budTotal!=null?c.effTotal-c.budTotal:null;
 
-  document.getElementById('dm-title').textContent=c.codigo;
+  document.getElementById('dm-title').innerHTML=c.codigo
+    +(c.cancelada?'<span style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:20px;font-size:10px;font-family:var(--mono);background:var(--rbg);color:var(--red);border:1px solid var(--rb)">cancelada</span>':'');
   document.getElementById('dm-edit-btn').onclick=function(){closeDetail();editCamp(id);};
   document.getElementById('dm-del-btn').onclick=function(){if(!confirm('¿Eliminar?'))return;G.campaigns=G.campaigns.filter(function(x){return x.id!==id;});syncSave();closeDetail();renderLista();};
+  var cancelBtn=document.getElementById('dm-cancel-btn');
+  if(c.cancelada){
+    cancelBtn.textContent='Reactivar campaña';
+    cancelBtn.style.background='var(--muted)';
+    cancelBtn.style.color='var(--dim)';
+    cancelBtn.onclick=function(){c.cancelada=false;c.motivoCancelacion='';syncSave();closeDetail();renderLista();};
+  }else{
+    cancelBtn.textContent='Cancelar campaña';
+    cancelBtn.style.background='';cancelBtn.style.color='';
+    cancelBtn.onclick=function(){
+      var motivo=prompt('Motivo de cancelación:','');
+      if(motivo===null)return;
+      c.cancelada=true;c.motivoCancelacion=motivo;
+      syncSave();closeDetail();renderLista();
+    };
+  }
 
   var kpis=[{l:'Presupuestado',v:fmt(c.budTotal),c:'blue'},{l:'Efectivo',v:fmt(c.effTotal),c:'green'}];
   if(isMailing){
@@ -671,6 +713,7 @@ function openDetail(id){
       +'</div></div>'
     :'')
     +(c.segmentacion?'<div class="di dfc"><div class="dlb">Segmentación</div><div style="font-size:12px;color:var(--dim)">'+c.segmentacion+'</div></div>':'')
+    +(c.cancelada?'<div class="di dfc"><div class="dlb" style="color:var(--red)">Motivo cancelación</div><div style="font-size:12px;color:var(--red)">'+(c.motivoCancelacion||'Sin motivo registrado')+'</div></div>':'')
     +(c.notas?'<div class="di dfc"><div class="dlb">Notas</div><div style="font-size:12px;color:var(--dim);line-height:1.6">'+c.notas+'</div></div>':'')
     +'</div>';
 
@@ -1285,6 +1328,170 @@ function renderMailings(){
         +'<td style="text-align:right" onclick="event.stopPropagation()">'
         +'<button class="btn btn-xs" data-mid="'+m.id+'" onclick="editMailing(this.dataset.mid)">✎</button>'
         +'</td>'
+        +'</tr>';
+    }).join('')
+    +'</tbody></table></div></div>';
+
+  el.innerHTML=html;
+}
+
+// ── VENTAS ───────────────────────────────────────────
+let editVentaId=null;
+
+function newVenta(){editVentaId=null;openVForm();}
+function editVenta(id){editVentaId=id;openVForm();}
+function closeVForm(){document.getElementById('mod-venta-form').classList.remove('on');editVentaId=null;}
+document.getElementById('mod-venta-form').onclick=function(e){if(e.target===e.currentTarget)closeVForm();};
+
+function openVForm(){
+  var v2=editVentaId?G.ventas.find(function(x){return x.id===editVentaId;}):null;
+  document.getElementById('vf-title').textContent=editVentaId?'Editar venta':'Nueva venta';
+  var v=function(f,d){return v2&&v2[f]!==undefined&&v2[f]!==null&&v2[f]!==''?v2[f]:d;};
+  var today=new Date().toISOString().slice(0,10);
+
+  // Build campaign options for linking
+  var campOpts='<option value="">Sin vincular</option>'
+    +G.campaigns.filter(function(c){return !c.cancelada;}).map(function(c){
+      return '<option value="'+c.id+'"'+(v('campanaId','')==c.id?' selected':'')+'>'+c.codigo+' · '+pName(c.producto)+'</option>';
+    }).join('');
+
+  var html='<div class="fg" style="margin-bottom:14px">'
+    +'<div class="field"><label>Fecha de venta</label><input type="date" id="vf-fecha" value="'+v('fecha',today)+'"></div>'
+    +'<div class="field"><label>Cliente</label><input type="text" id="vf-cliente" value="'+v('cliente','')+'" placeholder="Nombre del cliente..."></div>'
+    +'<div class="field"><label>Producto</label><select id="vf-producto">'
+    +'<option value="">Seleccionar...</option>'
+    +G.products.map(function(p){return '<option value="'+p.id+'"'+(v('producto','')==p.id?' selected':'')+'>'+p.name+' ('+p.area+')</option>';}).join('')
+    +'</select></div>'
+    +'<div class="field"><label>Tipo de venta</label><select id="vf-tipo">'
+    +'<option value="">—</option>'
+    +'<option value="Nuevo"'+(v('tipoVenta','')==='Nuevo'?' selected':'')+'>Nuevo cliente</option>'
+    +'<option value="Recurrente"'+(v('tipoVenta','')==='Recurrente'?' selected':'')+'>Recurrente</option>'
+    +'</select></div>'
+    +'<div class="field"><label>Facturación ($)</label><input type="number" id="vf-monto" min="0" value="'+v('monto','')+'" placeholder="Monto en USD"></div>'
+    +'<div class="field"><label>Campaña de origen</label><select id="vf-campana">'+campOpts+'</select></div>'
+    +'<div class="field ffc"><label>Notas</label><input type="text" id="vf-notas" value="'+v('notas','')+'" placeholder="Observaciones..."></div>'
+    +'</div>'
+    +'<div style="display:flex;gap:10px;flex-wrap:wrap">'
+    +'<button class="btn btn-ink" onclick="submitVenta()">'+(editVentaId?'Guardar cambios':'Registrar venta')+'</button>'
+    +'<button class="btn" onclick="closeVForm()">Cancelar</button>'
+    +(editVentaId?'<button class="btn btn-danger" style="margin-left:auto" onclick="deleteVenta()">Eliminar</button>':'')
+    +'</div>';
+
+  document.getElementById('vf-body').innerHTML=html;
+  document.getElementById('mod-venta-form').classList.add('on');
+}
+
+function submitVenta(){
+  var fecha=document.getElementById('vf-fecha').value;
+  var cliente=document.getElementById('vf-cliente').value.trim();
+  var monto=parseFloat(document.getElementById('vf-monto').value)||null;
+  if(!fecha||!cliente){alert('Completá Fecha y Cliente.');return;}
+  var d=new Date(fecha+'T00:00:00');
+  var venta={
+    id:editVentaId||('v'+Date.now()),
+    fecha:fecha,mes:d.getMonth(),anio:d.getFullYear(),
+    cliente:cliente,
+    producto:document.getElementById('vf-producto').value,
+    tipoVenta:document.getElementById('vf-tipo').value,
+    monto:monto,
+    campanaId:document.getElementById('vf-campana').value,
+    notas:document.getElementById('vf-notas').value,
+    updatedAt:new Date().toISOString()
+  };
+  if(editVentaId){var idx=G.ventas.findIndex(function(x){return x.id===editVentaId;});if(idx>=0)G.ventas[idx]=venta;}
+  else G.ventas.unshift(venta);
+  editVentaId=null;
+  syncSave();closeVForm();renderVentas();
+}
+
+function deleteVenta(){
+  if(!editVentaId||!confirm('¿Eliminar esta venta?'))return;
+  G.ventas=G.ventas.filter(function(v){return v.id!==editVentaId;});
+  editVentaId=null;syncSave();closeVForm();renderVentas();
+}
+
+function renderVentas(){
+  var el=document.getElementById('ventas-content');if(!el)return;
+  var vs=G.ventas;
+
+  if(!vs.length){
+    el.innerHTML='<div class="empty"><p>No hay ventas registradas.</p><button class="btn btn-ink" onclick="newVenta()" style="margin-top:12px">+ Nueva venta</button></div>';
+    return;
+  }
+
+  // KPIs
+  var totMonto=0,totNuevo=0,totRec=0;
+  var byProd={},byCamp={};
+  vs.forEach(function(v){
+    if(v.monto)totMonto+=v.monto;
+    if(v.tipoVenta==='Nuevo')totNuevo++;
+    if(v.tipoVenta==='Recurrente')totRec++;
+    var pn=pName(v.producto)||'—';
+    if(!byProd[pn])byProd[pn]={count:0,monto:0};
+    byProd[pn].count++;if(v.monto)byProd[pn].monto+=v.monto;
+    if(v.campanaId){
+      if(!byCamp[v.campanaId])byCamp[v.campanaId]={count:0,monto:0};
+      byCamp[v.campanaId].count++;if(v.monto)byCamp[v.campanaId].monto+=v.monto;
+    }
+  });
+
+  // ROI: total facturado vs total invertido en campañas vinculadas
+  var totalInvCamps=0;
+  Object.keys(byCamp).forEach(function(cid){
+    var c=G.campaigns.find(function(x){return x.id===cid;});
+    if(c&&c.effTotal)totalInvCamps+=c.effTotal;
+  });
+  var roi=totalInvCamps?Math.round((totMonto-totalInvCamps)/totalInvCamps*100):null;
+
+  var html='<div class="kpi-grid">'
+    +'<div class="kpi green"><div class="kl">Total facturado</div><div class="kv">$'+totMonto.toLocaleString()+'</div><div class="ks">'+vs.length+' ventas</div></div>'
+    +'<div class="kpi blue"><div class="kl">Inversión vinculada</div><div class="kv">'+(totalInvCamps?'$'+totalInvCamps.toLocaleString():'—')+'</div><div class="ks">campañas de origen</div></div>'
+    +'<div class="kpi '+(roi!==null?roi>=0?'green':'red':'neutral')+'"><div class="kl">ROI</div><div class="kv">'+(roi!==null?(roi>0?'+':'')+roi+'%':'—')+'</div><div class="ks">'+(roi!==null?roi>=0?'rentable':'negativo':'sin datos')+'</div></div>'
+    +'<div class="kpi gold"><div class="kl">Nuevos clientes</div><div class="kv">'+totNuevo+'</div></div>'
+    +'<div class="kpi neutral"><div class="kl">Recurrentes</div><div class="kv">'+totRec+'</div></div>'
+    +'<div class="kpi neutral"><div class="kl">Ticket promedio</div><div class="kv">'+(vs.length?'$'+Math.round(totMonto/vs.length).toLocaleString():'—')+'</div></div>'
+    +'</div>';
+
+  // By product
+  if(Object.keys(byProd).length>1){
+    var maxP=Math.max.apply(null,Object.values(byProd).map(function(v){return v.monto;}));
+    html+='<div class="cg"><div class="cc"><div class="cct">Facturación por producto</div>'
+      +Object.entries(byProd).sort(function(a,b){return b[1].monto-a[1].monto;}).map(function(e){
+        var pct=maxP>0?Math.round(e[1].monto/maxP*100):0;
+        return '<div class="br"><div class="bl">'+e[0]+'</div><div class="bt"><div class="bf" style="width:'+pct+'%;background:var(--green)"></div></div><div class="bv">$'+e[1].monto.toLocaleString()+'<br><span style="font-size:9px;color:var(--faint)">'+e[1].count+' ventas</span></div></div>';
+      }).join('')+'</div>';
+
+    // Top campaigns by revenue
+    var campRev=Object.entries(byCamp).map(function(e){
+      var c=G.campaigns.find(function(x){return x.id===e[0];});
+      var inv=c&&c.effTotal?c.effTotal:0;
+      var roiC=inv?Math.round((e[1].monto-inv)/inv*100):null;
+      return {cod:c?c.codigo:e[0],monto:e[1].monto,count:e[1].count,inv:inv,roi:roiC};
+    }).sort(function(a,b){return b.monto-a.monto;});
+
+    html+='<div class="cc"><div class="cct">Facturación por campaña</div>'
+      +campRev.slice(0,6).map(function(r){
+        var pct=campRev[0].monto>0?Math.round(r.monto/campRev[0].monto*100):0;
+        return '<div class="br"><div class="bl" style="max-width:120px">'+r.cod+'</div><div class="bt"><div class="bf" style="width:'+pct+'%;background:var(--blue)"></div></div>'
+          +'<div class="bv">$'+r.monto.toLocaleString()+'<br><span style="font-size:9px;color:'+(r.roi!==null?r.roi>=0?'var(--green)':'var(--red)':'var(--faint)')+';">'+(r.roi!==null?'ROI '+(r.roi>0?'+':'')+r.roi+'%':'—')+'</span></div></div>';
+      }).join('')+'</div></div>';
+  }
+
+  // Table
+  html+='<div class="tw"><div style="overflow-x:auto"><table class="dt"><thead><tr>'
+    +'<th>Fecha</th><th>Cliente</th><th>Producto</th><th>Tipo</th>'
+    +'<th style="text-align:right">Facturación</th><th>Campaña origen</th><th></th>'
+    +'</tr></thead><tbody>'
+    +vs.map(function(v){
+      var camp=v.campanaId?G.campaigns.find(function(c){return c.id===v.campanaId;}):null;
+      return '<tr>'
+        +'<td style="color:var(--dim);font-size:11px">'+fDate(v.fecha)+'</td>'
+        +'<td><strong style="font-size:12px">'+v.cliente+'</strong></td>'
+        +'<td style="font-size:11px">'+(pName(v.producto)||'—')+'</td>'
+        +'<td style="font-size:11px">'+(v.tipoVenta?'<span style="padding:1px 7px;border-radius:20px;font-size:10px;background:'+(v.tipoVenta==='Nuevo'?'var(--bbg)':'var(--muted)')+';color:'+(v.tipoVenta==='Nuevo'?'var(--blue)':'var(--dim)')+'">'+v.tipoVenta+'</span>':'—')+'</td>'
+        +'<td style="text-align:right;font-weight:500;color:var(--green)">'+(v.monto?'$'+v.monto.toLocaleString():'—')+'</td>'
+        +'<td style="font-size:11px;color:var(--dim)">'+(camp?camp.codigo:'—')+'</td>'
+        +'<td onclick="event.stopPropagation()"><button class="btn btn-xs" data-vid="'+v.id+'" onclick="editVenta(this.dataset.vid)">✎</button></td>'
         +'</tr>';
     }).join('')
     +'</tbody></table></div></div>';
