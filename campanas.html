@@ -996,12 +996,16 @@ function renderFinanciero(camps,el){
 
     var alertMonths=pts.filter(function(k){return byMonth[k]&&byMonth[k].bud&&allMonths[k].eff>byMonth[k].bud*1.1;});
 
-    // Acumulado desde Mayo 2026
-    var acumStart='2026-04'; // mes anterior a Mayo para filtrar >= Mayo
+    // Acumulado desde Mayo 2026 — usa TODAS las campañas sin filtrar
+    var acumStart='2026-04';
     var acumEff=0,acumBud=0;
-    allKeys.filter(function(k){return k>acumStart;}).forEach(function(k){
-      acumEff+=allMonths[k].eff;
-      if(byMonth[k])acumBud+=byMonth[k].bud;
+    G.campaigns.filter(function(c){
+      if(c.cancelada)return false;
+      var mk=c.anio+'-'+String(c.mes).padStart(2,'0');
+      return mk>acumStart;
+    }).forEach(function(c){
+      if(c.effTotal)acumEff+=c.effTotal;
+      if(c.budTotal)acumBud+=c.budTotal;
     });
     var acumVar=acumBud?Math.round((acumEff-acumBud)/acumBud*100):null;
 
@@ -1046,7 +1050,7 @@ function renderFinanciero(camps,el){
       +'<div><div style="font-size:9px;color:var(--dim);margin-bottom:2px">Total efectivo</div><div style="font-family:var(--serif);font-size:24px;color:var(--green)">$'+acumEff.toLocaleString()+'</div></div>'
       +(acumBud?'<div><div style="font-size:9px;color:var(--dim);margin-bottom:2px">Total presupuestado</div><div style="font-family:var(--serif);font-size:20px">$'+acumBud.toLocaleString()+'</div></div>':'')
       +(acumVar!==null?'<div><div style="font-size:9px;color:var(--dim);margin-bottom:2px">Variación</div><div style="font-family:var(--serif);font-size:20px;color:'+(acumVar>0?'var(--red)':'var(--green)')+'">'+(acumVar>0?'▲':'▼')+Math.abs(acumVar)+'%</div></div>':'')
-      +'<div style="margin-top:4px;padding-top:10px;border-top:1px solid var(--brd)"><div style="font-size:9px;color:var(--dim);margin-bottom:2px">Meses activos</div><div style="font-family:var(--serif);font-size:20px">'+allKeys.filter(function(k){return k>acumStart;}).length+'</div></div>'
+      +'<div style="margin-top:4px;padding-top:10px;border-top:1px solid var(--brd)"><div style="font-size:9px;color:var(--dim);margin-bottom:2px">Meses activos</div><div style="font-family:var(--serif);font-size:20px">'+[...new Set(G.campaigns.filter(function(c){if(c.cancelada)return false;var mk=c.anio+'-'+String(c.mes).padStart(2,'0');return mk>acumStart;}).map(function(c){return c.anio+'-'+String(c.mes).padStart(2,'0');}))].length+'</div></div>'
       +'</div>'
       +'</div>';
 
