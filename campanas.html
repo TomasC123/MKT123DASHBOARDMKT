@@ -95,11 +95,32 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 @media(max-width:700px){.fg,.fg3,.cg,.dg{grid-template-columns:1fr}.ffc{grid-column:auto}}
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-thumb{background:var(--brd);border-radius:3px}
+.login-screen{position:fixed;inset:0;background:var(--ink);display:flex;align-items:center;justify-content:center;z-index:9999;flex-direction:column;gap:0}
+.login-box{background:var(--paper);border-radius:var(--rl);padding:40px 48px;width:100%;max-width:380px;text-align:center}
+.login-logo{font-family:var(--serif);font-size:32px;font-style:italic;color:var(--ink);margin-bottom:4px}
+.login-sub{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:32px}
+.login-field{width:100%;padding:10px 14px;border:1px solid var(--brdm);border-radius:var(--r);font-family:var(--mono);font-size:14px;background:var(--surf);color:var(--ink);outline:none;text-align:center;letter-spacing:.1em;margin-bottom:10px}
+.login-field:focus{border-color:var(--ink)}
+.login-btn{width:100%;padding:11px;border-radius:var(--r);border:none;background:var(--ink);color:var(--paper);font-family:var(--mono);font-size:12px;cursor:pointer;margin-bottom:8px;letter-spacing:.04em;transition:opacity .15s}
+.login-btn:hover{opacity:.85}
+.login-err{font-size:11px;color:var(--red);min-height:18px;margin-top:4px}
+.ro-badge{position:fixed;bottom:12px;right:16px;background:var(--gold-bg);border:1px solid var(--goldb);border-radius:20px;padding:4px 12px;font-size:10px;color:var(--gold);font-family:var(--mono);z-index:100;letter-spacing:.04em}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
-<div class="shell">
+<!-- LOGIN SCREEN -->
+<div class="login-screen" id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">Campañas</div>
+    <div class="login-sub">Panel de Control</div>
+    <input class="login-field" type="password" id="login-pwd" placeholder="Contraseña" onkeydown="if(event.key==='Enter')doLogin()">
+    <button class="login-btn" onclick="doLogin()">Ingresar</button>
+    <div class="login-err" id="login-err"></div>
+  </div>
+</div>
+
+<div class="shell" id="app-shell" style="display:none">
   <aside class="sb">
     <div class="sb-logo"><span class="sb-title">Campañas</span><span class="sb-sub">Campaign Manager</span></div>
     <nav class="sb-nav">
@@ -265,7 +286,9 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <div class="mh"><div class="mt2">✦ Análisis IA</div><button class="btn btn-sm" onclick="document.getElementById('mod-ai').classList.remove('on')">✕</button></div>
     <div class="mb2" id="ai-body"></div>
   </div>
-</div>
+</div><!-- end app-shell -->
+
+<span class="ro-badge" id="ro-badge" style="display:none">👁 Solo lectura</span>
 
 <script>
 const MONTHS=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -1953,10 +1976,83 @@ function cfgAddTipo(){
 }
 function cfgAddModo(){var n=document.getElementById('cm-name').value.trim();if(!n)return;G.modos.push({id:'m'+Date.now(),name:n});renderConfig();}
 
+// ── AUTH ─────────────────────────────────────────────
+var HASH_MKT='6adc93777146b2d318afe6f9de20e4ad6954ddfa5d9de9afb6885d39b81b6c5c';
+var HASH_VIS='5a80fe2366cf398f675d78e892649bab31f07d7486eb51562a103fe509e4db95';
+var userRole=null; // 'mkt' or 'visitor'
+
+function sha256(str){
+  // Simple async-free hash using SubtleCrypto — but we need sync
+  // Use precomputed approach: compare after async hash
+  return crypto.subtle.digest('SHA-256', new TextEncoder().encode(str))
+    .then(function(buf){
+      return Array.from(new Uint8Array(buf)).map(function(b){return b.toString(16).padStart(2,'0');}).join('');
+    });
+}
+
+function doLogin(){
+  var pwd=document.getElementById('login-pwd').value;
+  sha256(pwd).then(function(hash){
+    if(hash===HASH_MKT){
+      userRole='mkt';
+      startApp();
+    }else if(hash===HASH_VIS){
+      userRole='visitor';
+      startApp();
+    }else{
+      document.getElementById('login-err').textContent='Contraseña incorrecta';
+      document.getElementById('login-pwd').value='';
+    }
+  });
+}
+
+function startApp(){
+  document.getElementById('login-screen').style.display='none';
+  document.getElementById('app-shell').style.display='flex';
+  if(userRole==='visitor'){
+    document.getElementById('ro-badge').style.display='block';
+    // Hide edit buttons for visitors
+    disableForVisitor();
+  }
+  renderAll();
+  renderForm();
+  syncLoad();
+}
+
+function disableForVisitor(){
+  // Override functions that modify data
+  submitForm=function(){alert('Modo solo lectura. Contactá al equipo de MKT.');};
+  deleteFromForm=function(){alert('Modo solo lectura.');};
+  syncSave=function(){return Promise.resolve();}; // no-op save
+  doSave=function(){alert('Modo solo lectura.');};
+  submitMailing=function(){alert('Modo solo lectura.');};
+  deleteMailing=function(){alert('Modo solo lectura.');};
+  submitVenta=function(){alert('Modo solo lectura.');};
+  deleteVenta=function(){alert('Modo solo lectura.');};
+  doJSONImport=function(){alert('Modo solo lectura.');};
+  // Hide new/edit buttons via CSS
+  var style=document.createElement('style');
+  style.textContent='.btn-ink,.btn-danger,.save-btn{opacity:.35!important;pointer-events:none!important}';
+  document.head.appendChild(style);
+}
+
 // ── INIT ─────────────────────────────────────────────
-renderAll();
-renderForm();
-syncLoad();
+// Don't auto-start — wait for login
+// But check sessionStorage for already-logged-in session
+(function(){
+  var saved=sessionStorage.getItem('campanas_role');
+  if(saved==='mkt'||saved==='visitor'){
+    userRole=saved;
+    startApp();
+  }
+})();
+
+// Save role to session on login
+var _startApp=startApp;
+startApp=function(){
+  sessionStorage.setItem('campanas_role',userRole);
+  _startApp();
+};
 </script>
 </body>
 </html>
