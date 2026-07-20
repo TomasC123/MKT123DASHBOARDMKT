@@ -207,6 +207,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <div class="page" id="page-ventas">
       <div class="ph"><h1 class="pt">Ventas</h1>
         <div class="pa">
+          <button class="btn" onclick="exportVentasExcel()">↓ Excel</button>
+          <button class="btn" onclick="exportVentasPDF()">↓ PDF</button>
           <button class="btn btn-ink" onclick="newVenta()">+ Nueva venta</button>
         </div>
       </div>
@@ -905,6 +907,176 @@ function renderFinanciero(camps,el){
       +'</div></div>';
   }
 
+  // ── MES A MES COMPARATIVO ───────────────────────────
+  var allMonths={};
+  G.campaigns.filter(function(c){return !c.cancelada;}).forEach(function(c){
+    var mk=c.anio+'-'+String(c.mes).padStart(2,'0');
+    if(!allMonths[mk])allMonths[mk]={label:MONTHS[c.mes].slice(0,3)+' '+String(c.anio).slice(2),eff:0,leads:0,wpp:0,camps:0,mes:c.mes,anio:c.anio};
+    allMonths[mk].camps++;
+    if(c.effTotal)allMonths[mk].eff+=c.effTotal;
+    if(!c.sinLeads&&c.leads)allMonths[mk].leads+=c.leads;
+    if(!c.sinLeads&&c.wpp)allMonths[mk].wpp+=c.wpp;
+  });
+  var allKeys=Object.keys(allMonths).sort();
+  if(allKeys.length>=2){
+    html+='<div class="card"><div class="ct">Comparativo mes a mes</div>'
+      +'<div style="overflow-x:auto"><table class="dt"><thead><tr>'
+      +'<th>Mes</th><th style="text-align:right">Campañas</th><th style="text-align:right">Invertido</th>'
+      +'<th style="text-align:right">Var. vs anterior</th>'
+      +'<th style="text-align:right">Leads</th><th style="text-align:right">WPP</th>'
+      +'<th style="text-align:right">CPL</th><th style="text-align:right">CPC WPP</th>'
+      +'</tr></thead><tbody>'
+      +allKeys.map(function(mk,i){
+        var v=allMonths[mk];
+        var prev=i>0?allMonths[allKeys[i-1]]:null;
+        var varEff=prev&&prev.eff?Math.round((v.eff-prev.eff)/prev.eff*100):null;
+        var cplV=v.leads&&v.eff?Math.round(v.eff/v.leads):null;
+        var wppV=v.wpp&&v.eff?Math.round(v.eff/v.wpp):null;
+        var isCurrent=allKeys[i]===allKeys[allKeys.length-1];
+        return '<tr style="'+(isCurrent?'background:var(--muted);font-weight:500':'')+'">'
+          +'<td>'+v.label+(isCurrent?' <span style="font-size:9px;color:var(--faint)">actual</span>':'')+'</td>'
+          +'<td style="text-align:right">'+v.camps+'</td>'
+          +'<td style="text-align:right">$'+v.eff.toLocaleString()+'</td>'
+          +'<td style="text-align:right">'+(varEff!==null?'<span style="color:'+(varEff>0?'var(--red)':'var(--green)')+'">'+(varEff>0?'▲':'▼')+Math.abs(varEff)+'%</span>':'—')+'</td>'
+          +'<td style="text-align:right">'+v.leads+'</td>'
+          +'<td style="text-align:right">'+v.wpp+'</td>'
+          +'<td style="text-align:right">'+(cplV?'$'+cplV:'—')+'</td>'
+          +'<td style="text-align:right">'+(wppV?'$'+wppV:'—')+'</td>'
+          +'</tr>';
+      }).join('')
+      +'</tbody></table></div></div>';
+  }
+
+  // ── CPL POR ÁREA ─────────────────────────────────────
+  var cplByArea={};
+  camps.filter(function(c){return !c.cancelada&&!c.sinLeads;}).forEach(function(c){
+    var p=getProd(c.producto);var a=p?p.area:'Otros';
+    if(!cplByArea[a])cplByArea[a]={eff:0,leads:0,wpp:0};
+    if(c.effTotal)cplByArea[a].eff+=c.effTotal;
+    if(c.leads)cplByArea[a].leads+=c.leads;
+    if(c.wpp)cplByArea[a].wpp+=c.wpp;
+  });
+  if(Object.keys(cplByArea).length>0){
+    html+='<div class="card"><div class="ct">CPL por área</div>'
+      +'<div class="kpi-grid">';
+    Object.entries(cplByArea).forEach(function(e){
+      var v=e[1];
+      var isAgro=e[0]==='AGRO';
+      // AGRO: usa WPP como métrica principal
+      // ING: usa leads META
+      var mainMetric=isAgro?(v.wpp&&v.eff?Math.round(v.eff/v.wpp):null):(v.leads&&v.eff?Math.round(v.eff/v.leads):null);
+      var mainLabel=isAgro?'CPC WhatsApp':'CPL Meta';
+      var mainCount=isAgro?v.wpp+' contactos WPP':v.leads+' leads';
+      html+='<div class="kpi gold"><div class="kl">'+e[0]+' · '+mainLabel+'</div>'
+        +'<div class="kv">'+(mainMetric?'$'+mainMetric:'—')+'</div>'
+        +'<div class="ks">'+mainCount+' · $'+v.eff.toLocaleString()+' invertidos</div></div>';
+    });
+    html+='</div></div>';
+  }
+
+  // ── GRÁFICO DE LÍNEAS: PRESUPUESTO MES A MES ─────────
+  if(allKeys.length>=2){
+    var maxLineVal=Math.max.apply(null,allKeys.map(function(k){return Math.max(allMonths[k].eff,allMonths[k].leads*10||0);}));
+    var chartW=600,chartH=160,padL=55,padB=30,padT=16,padR=16;
+    var pts=allKeys.slice(-8); // last 8 months
+    var n=pts.length;
+    var xStep=(chartW-padL-padR)/(n-1||1);
+    var yScale=(chartH-padT-padB)/Math.max(1,Math.max.apply(null,pts.map(function(k){return allMonths[k].eff;})));
+
+    function px(i){return padL+i*xStep;}
+    function py(val){return chartH-padB-val*yScale;}
+
+    // Build SVG polyline points
+    var effPts=pts.map(function(k,i){return px(i)+','+py(allMonths[k].eff);}).join(' ');
+
+    // Alert: if any month exceeds budget by >10%
+    var alertMonths=pts.filter(function(k){
+      var v=allMonths[k];
+      return byMonth[k]&&byMonth[k].bud&&v.eff>byMonth[k].bud*1.1;
+    });
+
+    var budPts=pts.map(function(k,i){
+      var bud=byMonth[k]?byMonth[k].bud:0;
+      return px(i)+','+py(bud);
+    }).join(' ');
+
+    var svg='<svg viewBox="0 0 '+chartW+' '+chartH+'" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:'+chartW+'px;display:block">'
+      // Grid lines
+      +[0.25,0.5,0.75,1].map(function(pct){
+        var y=py(Math.max.apply(null,pts.map(function(k){return allMonths[k].eff;}))*pct);
+        var val=Math.round(Math.max.apply(null,pts.map(function(k){return allMonths[k].eff;}))*pct);
+        return '<line x1="'+padL+'" y1="'+y+'" x2="'+(chartW-padR)+'" y2="'+y+'" stroke="#ddd8ce" stroke-width="1"/>'
+          +'<text x="'+(padL-6)+'" y="'+(y+4)+'" text-anchor="end" font-size="9" fill="#9a9286">$'+val+'</text>';
+      }).join('')
+      // Budget line (dashed blue)
+      +'<polyline points="'+budPts+'" fill="none" stroke="#1a4fa8" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.5"/>'
+      // Effective line (solid green)
+      +'<polyline points="'+effPts+'" fill="none" stroke="#1c6b45" stroke-width="2.5"/>'
+      // Dots + labels
+      +pts.map(function(k,i){
+        var v=allMonths[k];
+        var x=px(i),y=py(v.eff);
+        var overBudget=byMonth[k]&&byMonth[k].bud&&v.eff>byMonth[k].bud*1.1;
+        return '<circle cx="'+x+'" cy="'+y+'" r="4" fill="'+(overBudget?'#c0392b':'#1c6b45')+'"/>'
+          +'<text x="'+x+'" y="'+(chartH-padB+18)+'" text-anchor="middle" font-size="9" fill="#9a9286">'+v.label+'</text>'
+          +'<text x="'+x+'" y="'+(y-8)+'" text-anchor="middle" font-size="9" fill="'+(overBudget?'#c0392b':'#1c6b45')+'" font-weight="500">$'+v.eff.toLocaleString()+'</text>';
+      }).join('')
+      // Legend
+      +'<line x1="'+padL+'" y1="12" x2="'+(padL+18)+'" y2="12" stroke="#1c6b45" stroke-width="2.5"/>'
+      +'<text x="'+(padL+22)+'" y="16" font-size="9" fill="#9a9286">Efectivo</text>'
+      +'<line x1="'+(padL+75)+'" y1="12" x2="'+(padL+93)+'" y2="12" stroke="#1a4fa8" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.5"/>'
+      +'<text x="'+(padL+97)+'" y="16" font-size="9" fill="#9a9286">Presupuestado</text>'
+      +(alertMonths.length?'<text x="'+(padL+180)+'" y="16" font-size="9" fill="#c0392b">● meses con exceso &gt;10%</text>':'')
+      +'</svg>';
+
+    html+='<div class="card"><div class="ct">Inversión mensual · presupuesto vs efectivo</div>'+svg;
+
+    // Alert box if any month exceeded budget
+    if(alertMonths.length){
+      html+='<div style="margin-top:12px;padding:9px 13px;border-radius:var(--r);background:var(--rbg);border:1px solid var(--rb)">'
+        +'<span style="font-size:11px;color:var(--red)">▲ '+alertMonths.length+' mes'+(alertMonths.length>1?'es superaron':'  superó')+' el presupuesto en más del 10%: '
+        +alertMonths.map(function(k){return allMonths[k].label;}).join(', ')
+        +'</span></div>';
+    }
+    html+='</div>';
+  }
+
+  // ── VELOCIDAD DE CARGA DE DATOS ───────────────────────
+  var withDates=camps.filter(function(c){return c.fechaReal&&c.fechaCarga&&c.effTotal;});
+  if(withDates.length>=2){
+    var totalDias=0;
+    withDates.forEach(function(c){
+      var diff=Math.max(0,Math.round((new Date(c.fechaCarga)-new Date(c.fechaReal+'T00:00:00'))/86400000));
+      totalDias+=diff;
+    });
+    var avgDias=Math.round(totalDias/withDates.length);
+    html+='<div class="card"><div class="ct">Velocidad de carga de datos</div>'
+      +'<div class="kpi-grid">'
+      +'<div class="kpi '+(avgDias<=3?'green':avgDias<=7?'gold':'red')+'">'
+      +'<div class="kl">Demora promedio</div>'
+      +'<div class="kv">'+avgDias+' días</div>'
+      +'<div class="ks">entre fecha real y carga en sistema</div></div>'
+      +'<div class="kpi neutral"><div class="kl">Campañas con datos</div><div class="kv">'+withDates.length+'</div><div class="ks">de '+camps.length+' totales</div></div>'
+      +'</div>'
+      +'<table class="dt" style="margin-top:12px"><thead><tr>'
+      +'<th>Código</th><th>Fecha real</th><th>Fecha carga</th><th style="text-align:right">Demora</th>'
+      +'</tr></thead><tbody>'
+      +withDates.sort(function(a,b){
+        var da=Math.round((new Date(b.fechaCarga)-new Date(b.fechaReal+'T00:00:00'))/86400000);
+        var db=Math.round((new Date(a.fechaCarga)-new Date(a.fechaReal+'T00:00:00'))/86400000);
+        return da-db;
+      }).slice(0,8).map(function(c){
+        var dias=Math.max(0,Math.round((new Date(c.fechaCarga)-new Date(c.fechaReal+'T00:00:00'))/86400000));
+        return '<tr>'
+          +'<td style="font-size:11px">'+c.codigo+'</td>'
+          +'<td style="color:var(--dim);font-size:11px">'+fDate(c.fechaReal)+'</td>'
+          +'<td style="color:var(--dim);font-size:11px">'+fDate(c.fechaCarga)+'</td>'
+          +'<td style="text-align:right;color:'+(dias<=3?'var(--green)':dias<=7?'var(--gold)':'var(--red)')+'">'+dias+' días</td>'
+          +'</tr>';
+      }).join('')
+      +'</tbody></table></div>';
+  }
+
   var mailCamps=camps.filter(function(c){return c.tipo==='MAILING';});
   if(mailCamps.length){
     var tEnv=0,tCl=0,tAp=0,apN=0,mailEff=0;
@@ -1581,6 +1753,130 @@ function renderVentas(){
     +'</tbody></table></div></div>';
 
   el.innerHTML=html;
+}
+
+// ── VENTAS EXPORTS ───────────────────────────────────
+function exportVentasExcel(){
+  if(!G.ventas.length){alert('No hay ventas para exportar.');return;}
+
+  var rows=[['Fecha','Cliente','Producto','Área','Tipo de venta','Facturación ($)',
+    'Campaña origen','Tipo campaña','Presupuesto campaña','Invertido campaña',
+    'ROI (%)','Notas']];
+
+  G.ventas.forEach(function(v){
+    var camp=v.campanaId?G.campaigns.find(function(c){return c.id===v.campanaId;}):null;
+    var inv=camp&&camp.effTotal?camp.effTotal:null;
+    var roi=inv&&v.monto?Math.round((v.monto-inv)/inv*100):null;
+    rows.push([
+      v.fecha,
+      v.cliente,
+      pName(v.producto)||'—',
+      pArea(v.producto)||'—',
+      v.tipoVenta||'—',
+      v.monto||0,
+      camp?camp.codigo:'—',
+      camp?camp.tipo:'—',
+      camp?camp.budTotal||'':'—',
+      inv||'—',
+      roi!==null?roi+'%':'—',
+      v.notas||''
+    ]);
+  });
+
+  // Summary by product
+  var byProd={};
+  G.ventas.forEach(function(v){
+    var pn=pName(v.producto)||'—';
+    var a=pArea(v.producto)||'—';
+    if(!byProd[pn])byProd[pn]={area:a,count:0,monto:0,inv:0};
+    byProd[pn].count++;
+    if(v.monto)byProd[pn].monto+=v.monto;
+    if(v.campanaId){var c=G.campaigns.find(function(x){return x.id===v.campanaId;});if(c&&c.effTotal)byProd[pn].inv+=c.effTotal;}
+  });
+
+  var sumRows=[['Producto','Área','Ventas','Facturación total','Inversión vinculada','ROI (%)']];
+  Object.entries(byProd).forEach(function(e){
+    var v=e[1];
+    var roi=v.inv&&v.monto?Math.round((v.monto-v.inv)/v.inv*100):null;
+    sumRows.push([e[0],v.area,v.count,v.monto,v.inv||'—',roi!==null?roi+'%':'—']);
+  });
+
+  var wb=XLSX.utils.book_new();
+  var ws1=XLSX.utils.aoa_to_sheet(rows);
+  var ws2=XLSX.utils.aoa_to_sheet(sumRows);
+  ws1['!cols']=[{wch:12},{wch:20},{wch:16},{wch:12},{wch:14},{wch:14},{wch:30},{wch:10},{wch:14},{wch:14},{wch:10},{wch:30}];
+  ws2['!cols']=[{wch:16},{wch:12},{wch:8},{wch:16},{wch:18},{wch:10}];
+  XLSX.utils.book_append_sheet(wb,ws1,'Ventas');
+  XLSX.utils.book_append_sheet(wb,ws2,'Por producto');
+  XLSX.writeFile(wb,'Ventas_'+new Date().toISOString().slice(0,10)+'.xlsx');
+}
+
+function exportVentasPDF(){
+  if(!G.ventas.length){alert('No hay ventas para exportar.');return;}
+
+  var totMonto=0,totInv=0,totNuevo=0,totRec=0;
+  var byProd={};
+  G.ventas.forEach(function(v){
+    if(v.monto)totMonto+=v.monto;
+    if(v.tipoVenta==='Nuevo')totNuevo++;
+    if(v.tipoVenta==='Recurrente')totRec++;
+    var camp=v.campanaId?G.campaigns.find(function(c){return c.id===v.campanaId;}):null;
+    if(camp&&camp.effTotal)totInv+=camp.effTotal;
+    var pn=pName(v.producto)||'—';
+    if(!byProd[pn])byProd[pn]={area:pArea(v.producto)||'—',count:0,monto:0,inv:0};
+    byProd[pn].count++;
+    if(v.monto)byProd[pn].monto+=v.monto;
+    if(camp&&camp.effTotal)byProd[pn].inv+=camp.effTotal;
+  });
+  var roi=totInv?Math.round((totMonto-totInv)/totInv*100):null;
+
+  var style='<style>body{font-family:Georgia,serif;color:#0f0e0c;padding:32px;max-width:960px;margin:0 auto}h1{font-size:28px;font-style:italic;margin-bottom:4px}h2{font-size:15px;margin:24px 0 10px;border-bottom:1px solid #ddd;padding-bottom:4px}table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px}th{padding:7px 10px;background:#f0ede6;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.08em}td{padding:7px 10px;border-bottom:1px solid #ede9e1}.krow{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:20px}.kb{border:1px solid #ddd;border-radius:8px;padding:12px 16px;min-width:120px}.kl{font-size:9px;text-transform:uppercase;color:#9a9286;margin-bottom:4px}.kv{font-size:22px;font-family:Georgia,serif}.green{color:#1c6b45}.red{color:#c0392b}.footer{margin-top:32px;font-size:10px;color:#c4bfb5;border-top:1px solid #ede9e1;padding-top:12px}</style>';
+
+  var body='<h1>Reporte de Ventas</h1>'
+    +'<p style="color:#9a9286;font-size:11px;margin-bottom:20px">'+new Date().toLocaleDateString('es-AR')+' · '+G.ventas.length+' ventas registradas</p>'
+    +'<h2>Resumen ejecutivo</h2>'
+    +'<div class="krow">'
+    +'<div class="kb"><div class="kl">Total facturado</div><div class="kv">$'+totMonto.toLocaleString()+'</div></div>'
+    +'<div class="kb"><div class="kl">Inversión vinculada</div><div class="kv">$'+totInv.toLocaleString()+'</div></div>'
+    +'<div class="kb"><div class="kl">ROI total</div><div class="kv '+(roi!==null?roi>=0?'green':'red':'')+'">'+(roi!==null?(roi>0?'+':'')+roi+'%':'—')+'</div></div>'
+    +'<div class="kb"><div class="kl">Nuevos clientes</div><div class="kv">'+totNuevo+'</div></div>'
+    +'<div class="kb"><div class="kl">Recurrentes</div><div class="kv">'+totRec+'</div></div>'
+    +'<div class="kb"><div class="kl">Ticket promedio</div><div class="kv">$'+Math.round(totMonto/G.ventas.length).toLocaleString()+'</div></div>'
+    +'</div>'
+
+    +'<h2>Por producto</h2>'
+    +'<table><thead><tr><th>Producto</th><th>Área</th><th>Ventas</th><th>Facturación</th><th>Inversión</th><th>ROI</th></tr></thead><tbody>'
+    +Object.entries(byProd).sort(function(a,b){return b[1].monto-a[1].monto;}).map(function(e){
+      var v=e[1];
+      var r=v.inv&&v.monto?Math.round((v.monto-v.inv)/v.inv*100):null;
+      return '<tr><td><strong>'+e[0]+'</strong></td><td>'+v.area+'</td><td>'+v.count+'</td>'
+        +'<td>$'+v.monto.toLocaleString()+'</td>'
+        +'<td>'+(v.inv?'$'+v.inv.toLocaleString():'—')+'</td>'
+        +'<td class="'+(r!==null?r>=0?'green':'red':'')+'">'+(r!==null?(r>0?'+':'')+r+'%':'—')+'</td></tr>';
+    }).join('')+'</tbody></table>'
+
+    +'<h2>Detalle de ventas</h2>'
+    +'<table><thead><tr><th>Fecha</th><th>Cliente</th><th>Producto</th><th>Tipo</th><th>Facturación</th><th>Campaña</th><th>ROI</th></tr></thead><tbody>'
+    +G.ventas.map(function(v){
+      var camp=v.campanaId?G.campaigns.find(function(c){return c.id===v.campanaId;}):null;
+      var inv=camp&&camp.effTotal?camp.effTotal:null;
+      var r=inv&&v.monto?Math.round((v.monto-inv)/inv*100):null;
+      return '<tr>'
+        +'<td>'+fDate(v.fecha)+'</td>'
+        +'<td>'+v.cliente+'</td>'
+        +'<td>'+pName(v.producto)+'</td>'
+        +'<td>'+(v.tipoVenta||'—')+'</td>'
+        +'<td><strong>$'+(v.monto?v.monto.toLocaleString():'0')+'</strong></td>'
+        +'<td style="font-size:11px">'+(camp?camp.codigo:'—')+'</td>'
+        +'<td class="'+(r!==null?r>=0?'green':'red':'')+'">'+(r!==null?(r>0?'+':'')+r+'%':'—')+'</td>'
+        +'</tr>';
+    }).join('')+'</tbody></table>'
+    +'<div class="footer">Ventas · '+new Date().toLocaleString('es-AR')+'</div>';
+
+  var win=window.open('','_blank');
+  win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Reporte Ventas</title>'+style+'</head><body>'+body+'</body></html>');
+  win.document.close();
+  setTimeout(function(){win.print();},500);
 }
 
 // ── CONFIG ───────────────────────────────────────────
