@@ -320,6 +320,7 @@ let G={
 
 // editId is NEVER reset inside nav — only explicitly
 let editId=null, detailId=null, fUploads=[], dashTab='fin', curPage='dashboard';
+let fVersiones=[], fComments=[];
 
 // ── HELPERS ──────────────────────────────────────────
 function gv(id){var e=document.getElementById(id);return e?e.value:'';}
@@ -443,7 +444,11 @@ function onFechaChange(val){
 
 function updateCode(force){
   var el=document.getElementById('f-codigo');if(!el)return;
-  if(force||!el.value)el.value=genCode(gv('f-producto'),gv('f-tipo'),gv('f-fecha'));
+  var isDoble=document.getElementById('f-doble-version')&&document.getElementById('f-doble-version').checked;
+  if(force||!el.value){
+    var base=genCode(gv('f-producto'),gv('f-tipo'),gv('f-fecha'));
+    el.value=isDoble&&base?base+'-V2':base;
+  }
   toggleMailing();
 }
 
@@ -455,6 +460,39 @@ function toggleMailing(){
 function toggleSinLeads(checked){
   var el=document.getElementById('leads-fields');
   if(el)el.style.display=checked?'none':'contents';
+}
+function toggleDobleVersion(checked){
+  var modoSel=document.getElementById('f-modo');
+  var modoWrap=document.getElementById('modo-wrap');
+  if(modoSel){
+    modoSel.disabled=checked;
+    if(checked)modoSel.value='';
+  }
+  if(modoWrap){
+    var hint=modoWrap.querySelector('.fhint');
+    if(checked&&!hint){
+      var span=document.createElement('span');
+      span.className='fhint';
+      span.style.color='var(--gold)';
+      span.textContent='Se define por versión, abajo ↓';
+      modoWrap.appendChild(span);
+    }else if(!checked&&hint){
+      hint.remove();
+    }
+  }
+  var verCard=document.getElementById('versiones-card');
+  if(checked){
+    if(verCard)verCard.style.display='block';
+    if(fVersiones.length<2){
+      while(fVersiones.length<2)addVersionRow();
+    }else{
+      document.getElementById('versiones-list').innerHTML=renderVersionesList();
+    }
+    if(verCard)setTimeout(function(){verCard.scrollIntoView({behavior:'smooth',block:'center'});},100);
+  }else{
+    if(verCard)verCard.style.display='none';
+  }
+  updateCode(true);
 }
 function togglePriority(){
   var el=document.getElementById('priority-fields');
@@ -484,6 +522,8 @@ function renderForm(){
   var c=editId?G.campaigns.find(function(x){return x.id===editId;}):null;
   document.getElementById('form-title').textContent=editId?'Editar campaña':'Nueva campaña';
   fUploads=c?JSON.parse(JSON.stringify(c.media||[])):[];
+  fVersiones=c?JSON.parse(JSON.stringify(c.versiones||[])):[];
+  fComments=c?JSON.parse(JSON.stringify(c.comments||[])):[];
   var v=function(f,d){return c&&c[f]!==undefined&&c[f]!==null&&c[f]!==''?c[f]:d;};
   var today=new Date().toISOString().slice(0,10);
   var isMailing=v('tipo','')==='MAILING';
@@ -501,10 +541,19 @@ function renderForm(){
     +'<option value="">Seleccionar...</option>'
     +G.tipos.map(function(t){return '<option value="'+t.name+'"'+(v('tipo','')==t.name?' selected':'')+'>'+t.name+'</option>';}).join('')
     +'</select></div>'
-    +'<div class="field"><label>Modo</label><select id="f-modo">'
+    +'<div class="field" id="modo-wrap"><label>Modo</label><select id="f-modo" '+(v('dobleVersion',false)?'disabled':'')+'>'
     +'<option value="">Seleccionar...</option>'
     +G.modos.map(function(m){return '<option value="'+m.name+'"'+(v('modo','')==m.name?' selected':'')+'>'+m.name+'</option>';}).join('')
-    +'</select></div>'
+    +'</select>'
+    +(v('dobleVersion',false)?'<span class="fhint" style="color:var(--gold)">Se define por versión, abajo ↓</span>':'')
+    +'</div>'
+    +'<div class="field ffc" style="border-top:1px solid var(--brd);padding-top:12px;margin-top:4px">'
+    +'<label style="display:flex;align-items:center;gap:10px;cursor:pointer">'
+    +'<input type="checkbox" id="f-doble-version" '+(v('dobleVersion',false)?'checked':'')+' style="width:15px;height:15px;accent-color:var(--ink);cursor:pointer" onchange="toggleDobleVersion(this.checked)">'
+    +'<span>Esta campaña tuvo doble versión (cambió de foto/video/copy a mitad de camino)</span>'
+    +'</label>'
+    +'<span class="fhint">Al activar esto, el Modo se define por versión más abajo, y el código de campaña se marca como dividido.</span>'
+    +'</div>'
     +'<div class="field"><label>Código</label>'
     +'<div style="display:flex;gap:6px"><input type="text" id="f-codigo" value="'+v('codigo','')+'" placeholder="Auto..."><button class="btn btn-xs" type="button" onclick="updateCode(true)">↺</button></div></div>'
     +'<div class="field"><label>Fecha inicio planificada</label>'
@@ -564,8 +613,25 @@ function renderForm(){
     +'<div class="field mf" style="display:'+(isMailing?'':'none')+'"><label>Clicks</label><input type="number" id="f-mail-cl" min="0" value="'+v('mailClicks','')+'"></div>'
     +'<div class="field ffc"><label>Código / descripción de segmentación</label>'
     +'<input type="text" id="f-segmentacion" value="'+v('segmentacion','')+'" placeholder="Ej: M25-54 AGRO ARG, Intereses: maquinaria agrícola..."></div>'
-    +'<div class="field ffc"><label>Notas</label><textarea id="f-notas" placeholder="Observaciones...">'+v('notas','')+'</textarea></div>'
     +'</div></div>'
+
+    +'<div class="card" id="versiones-card" style="display:'+(v('dobleVersion',false)?'block':'none')+'"><div class="ct">Versiones creativas</div>'
+    +'<div id="versiones-section">'
+    +'<div class="notice">Si esta campaña usó más de una creatividad (por ejemplo: empezó con una foto y a la mitad se cambió a un video), dividí el período en versiones. Cada versión tiene su propio rango de fechas y sus propios resultados, para poder comparar cuál funcionó mejor.</div>'
+    +'<div id="versiones-list">'+renderVersionesList()+'</div>'
+    +'<button type="button" class="btn btn-sm" onclick="addVersionRow()" style="margin-top:8px">+ Agregar versión</button>'
+    +'</div></div>'
+
+    +'<div class="card"><div class="ct">Comentarios</div>'
+    +'<div id="comments-list">'+renderCommentsList()+'</div>'
+    +'<div style="display:flex;gap:8px;margin-top:10px">'
+    +'<input type="text" id="new-comment" placeholder="Agregar un comentario..." style="flex:1;padding:7px 10px;border:1px solid var(--brdm);border-radius:var(--r);font-family:var(--mono);font-size:12px;background:var(--surf);color:var(--ink);outline:none" onkeydown="if(event.key===\'Enter\')addComment()">'
+    +'<button type="button" class="btn btn-sm" onclick="addComment()">+ Agregar</button>'
+    +'</div></div>'
+
+    +'<div class="card"><div class="ct">Notas generales</div>'
+    +'<textarea id="f-notas" placeholder="Observaciones...">'+v('notas','')+'</textarea>'
+    +'</div>'
 
     +'<div class="card"><div class="ct">Link de Drive</div>'
     +'<div class="notice">Pegá acá el link de la carpeta de Drive de esta campaña. El primero aparece como acceso directo en la lista.</div>'
@@ -585,6 +651,90 @@ function renderForm(){
   document.getElementById('form-content').innerHTML=html;
   calcDesvio();
 }
+
+function renderVersionesList(){
+  if(!fVersiones.length)return '<p style="font-size:11px;color:var(--faint)">Sin versiones cargadas.</p>';
+  return fVersiones.map(function(ver,i){
+    var dias=(ver.fechaDesde&&ver.fechaHasta)?Math.max(0,Math.round((new Date(ver.fechaHasta+'T00:00:00')-new Date(ver.fechaDesde+'T00:00:00'))/86400000)+1):null;
+    return '<div style="border:1px solid var(--brd);border-radius:var(--r);padding:14px;margin-bottom:10px;background:var(--surf)">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
+      +'<span style="font-size:12px;font-weight:600;color:var(--ink)">Versión '+(i+1)+(i===0?' <span style="font-weight:400;color:var(--faint);font-size:10px">(original)</span>':' <span style="font-weight:400;color:var(--faint);font-size:10px">(reemplazo)</span>')+'</span>'
+      +'<button type="button" class="btn btn-xs btn-danger" data-vi="'+i+'" onclick="removeVersion(parseInt(this.dataset.vi))">× Quitar</button>'
+      +'</div>'
+      +'<div style="background:var(--muted);border-radius:var(--r);padding:10px 12px;margin-bottom:12px">'
+      +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-bottom:8px">¿Qué período estuvo activa esta versión?</div>'
+      +'<div class="fg" style="gap:10px">'
+      +'<div class="field"><label>Desde</label><input type="date" data-vi="'+i+'" data-vf="fechaDesde" value="'+(ver.fechaDesde||'')+'" onchange="updateVersion(this)"></div>'
+      +'<div class="field"><label>Hasta</label><input type="date" data-vi="'+i+'" data-vf="fechaHasta" value="'+(ver.fechaHasta||'')+'" onchange="updateVersion(this)"></div>'
+      +'</div>'
+      +(dias!==null?'<div class="fhint" style="margin-top:6px">= '+dias+' día'+(dias!==1?'s':'')+' activa</div>':'')
+      +'</div>'
+      +'<div class="fg fg3" style="margin-bottom:10px">'
+      +'<div class="field"><label>Formato</label><select data-vi="'+i+'" data-vf="formato" onchange="updateVersion(this)">'
+      +'<option value="">Seleccionar...</option>'
+      +['Foto','Video','Carrusel','Reel','Otro'].map(function(f){return '<option value="'+f+'"'+(ver.formato===f?' selected':'')+'>'+f+'</option>';}).join('')
+      +'</select></div>'
+      +'<div class="field ffc" style="grid-column:span 2"><label>'+(i===0?'Descripción de la creatividad':'Motivo del reemplazo')+'</label>'
+      +'<input type="text" data-vi="'+i+'" data-vf="motivo" value="'+(ver.motivo||'')+'" placeholder="'+(i===0?'Ej: foto del producto en campo...':'Ej: bajo rendimiento, se cambió por video...')+'" onchange="updateVersion(this)"></div>'
+      +'</div>'
+      +'<div style="background:var(--muted);border-radius:var(--r);padding:10px 12px">'
+      +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-bottom:8px">Resultados de esta versión</div>'
+      +'<div class="fg fg3">'
+      +'<div class="field"><label>Gasto ($)</label><input type="number" min="0" data-vi="'+i+'" data-vf="gasto" value="'+(ver.gasto||'')+'" onchange="updateVersion(this)"></div>'
+      +'<div class="field"><label>Leads</label><input type="number" min="0" data-vi="'+i+'" data-vf="leads" value="'+(ver.leads||'')+'" onchange="updateVersion(this)"></div>'
+      +'<div class="field"><label>WPP</label><input type="number" min="0" data-vi="'+i+'" data-vf="wpp" value="'+(ver.wpp||'')+'" onchange="updateVersion(this)"></div>'
+      +'</div>'
+      +((ver.leads&&ver.gasto)||(ver.wpp&&ver.gasto)?'<div class="fhint" style="margin-top:6px;color:var(--green);font-weight:500">'+((ver.leads&&ver.gasto)?'CPL: $'+Math.round(ver.gasto/ver.leads):'CPC WPP: $'+Math.round(ver.gasto/ver.wpp))+'</div>':'')
+      +'</div>'
+      +'</div>';
+  }).join('');
+}
+
+function addVersionRow(){
+  // Auto-fill "Desde" with the day after the previous version's "Hasta"
+  var prevHasta=fVersiones.length?fVersiones[fVersiones.length-1].fechaHasta:'';
+  var nextDesde='';
+  if(prevHasta){
+    var d=new Date(prevHasta+'T00:00:00');
+    d.setDate(d.getDate()+1);
+    nextDesde=d.toISOString().slice(0,10);
+  }else if(!fVersiones.length){
+    nextDesde=gv('f-fecha')||'';
+  }
+  fVersiones.push({fechaDesde:nextDesde,fechaHasta:'',formato:'',motivo:'',gasto:null,leads:null,wpp:null});
+  document.getElementById('versiones-list').innerHTML=renderVersionesList();
+}
+function removeVersion(i){fVersiones.splice(i,1);document.getElementById('versiones-list').innerHTML=renderVersionesList();}
+function updateVersion(el){
+  var i=parseInt(el.dataset.vi),f=el.dataset.vf;
+  var val=el.type==='number'?(parseFloat(el.value)||null):el.value;
+  fVersiones[i][f]=val;
+  if(['gasto','leads','wpp'].indexOf(f)>=0){
+    var list=document.getElementById('versiones-list');
+    if(list)list.innerHTML=renderVersionesList();
+  }
+}
+
+function renderCommentsList(){
+  if(!fComments.length)return '<p style="font-size:11px;color:var(--faint)">Sin comentarios todavía.</p>';
+  return '<div style="display:flex;flex-direction:column;gap:8px">'+fComments.slice().reverse().map(function(cm,ri){
+    var i=fComments.length-1-ri;
+    return '<div style="padding:8px 10px;background:var(--muted);border-radius:var(--r);border:1px solid var(--brd);display:flex;justify-content:space-between;gap:10px;align-items:flex-start">'
+      +'<div><div style="font-size:9px;color:var(--faint);margin-bottom:3px">'+fDate(cm.fecha)+'</div><div style="font-size:12px">'+cm.texto+'</div></div>'
+      +'<button type="button" data-ci="'+i+'" onclick="removeComment(parseInt(this.dataset.ci))" style="background:none;border:none;cursor:pointer;color:var(--faint);font-size:12px;flex-shrink:0">×</button>'
+      +'</div>';
+  }).join('')+'</div>';
+}
+
+function addComment(){
+  var input=document.getElementById('new-comment');
+  var texto=input.value.trim();
+  if(!texto)return;
+  fComments.push({fecha:new Date().toISOString().slice(0,10),texto:texto});
+  input.value='';
+  document.getElementById('comments-list').innerHTML=renderCommentsList();
+}
+function removeComment(i){fComments.splice(i,1);document.getElementById('comments-list').innerHTML=renderCommentsList();}
 
 function renderMediaList(){
   if(!fUploads.length)return '<p style="font-size:11px;color:var(--faint);margin-bottom:6px">Sin archivos.</p>';
@@ -617,6 +767,8 @@ function submitForm(){
     mailEnviados:gn('f-mail-env'),mailApertura:gn('f-mail-ap'),mailClicks:gn('f-mail-cl'),
     sinLeads:document.getElementById('f-sin-leads')?document.getElementById('f-sin-leads').checked:false,
     segmentacion:gv('f-segmentacion'),
+    dobleVersion:document.getElementById('f-doble-version')?document.getElementById('f-doble-version').checked:false,
+    versiones:fVersiones,comments:fComments,
     notas:gv('f-notas'),media:fUploads,updatedAt:new Date().toISOString()
   };
   if(editId){var idx=G.campaigns.findIndex(function(x){return x.id===editId;});if(idx>=0)G.campaigns[idx]=camp;}
@@ -695,6 +847,7 @@ function openDetail(id){
   var variance=c.effTotal!=null&&c.budTotal!=null?c.effTotal-c.budTotal:null;
 
   document.getElementById('dm-title').innerHTML=c.codigo
+    +(c.dobleVersion?'<span style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:20px;font-size:10px;font-family:var(--mono);background:var(--goldg);color:var(--gold);border:1px solid var(--goldb)">doble versión</span>':'')
     +(c.cancelada?'<span style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:20px;font-size:10px;font-family:var(--mono);background:var(--rbg);color:var(--red);border:1px solid var(--rb)">cancelada</span>':'');
   document.getElementById('dm-edit-btn').onclick=function(){closeDetail();editCamp(id);};
   document.getElementById('dm-del-btn').onclick=function(){if(!confirm('¿Eliminar?'))return;G.campaigns=G.campaigns.filter(function(x){return x.id!==id;});syncSave();closeDetail();renderLista();};
@@ -768,6 +921,43 @@ function openDetail(id){
       +'</div></div>':'')
     +(c.notas?'<div class="di dfc"><div class="dlb">Notas</div><div style="font-size:12px;color:var(--dim);line-height:1.6">'+c.notas+'</div></div>':'')
     +'</div>';
+
+  // Versiones comparison
+  if(c.versiones&&c.versiones.length){
+    html+='<div style="margin-top:16px"><div class="dlb" style="margin-bottom:8px">Comparativa de versiones creativas</div>'
+      +'<table class="dt"><thead><tr><th>#</th><th>Período</th><th>Formato</th><th>Motivo</th>'
+      +'<th style="text-align:right">Días</th><th style="text-align:right">Gasto</th><th style="text-align:right">Leads</th>'
+      +'<th style="text-align:right">WPP</th><th style="text-align:right">CPL/CPC</th></tr></thead><tbody>'
+      +c.versiones.map(function(ver,i){
+        var cplV=ver.leads&&ver.gasto?Math.round(ver.gasto/ver.leads):null;
+        var cpcV=ver.wpp&&ver.gasto?Math.round(ver.gasto/ver.wpp):null;
+        var diasV=(ver.fechaDesde&&ver.fechaHasta)?Math.max(0,Math.round((new Date(ver.fechaHasta+'T00:00:00')-new Date(ver.fechaDesde+'T00:00:00'))/86400000)+1):null;
+        return '<tr>'
+          +'<td>'+(i+1)+(i===0?' <span style="font-size:9px;color:var(--faint)">orig.</span>':'')+'</td>'
+          +'<td style="color:var(--dim);font-size:11px">'+fDate(ver.fechaDesde)+' → '+fDate(ver.fechaHasta)+'</td>'
+          +'<td>'+(ver.formato||'—')+'</td>'
+          +'<td style="font-size:11px;color:var(--dim);max-width:160px">'+(ver.motivo||'—')+'</td>'
+          +'<td style="text-align:right">'+(diasV!==null?diasV:'—')+'</td>'
+          +'<td style="text-align:right">'+(ver.gasto?'$'+ver.gasto.toLocaleString():'—')+'</td>'
+          +'<td style="text-align:right">'+(ver.leads||'—')+'</td>'
+          +'<td style="text-align:right">'+(ver.wpp||'—')+'</td>'
+          +'<td style="text-align:right;font-weight:500;color:'+(cplV||cpcV?'var(--green)':'var(--faint)')+'">'+(cplV?'$'+cplV:cpcV?'$'+cpcV:'—')+'</td>'
+          +'</tr>';
+      }).join('')
+      +'</tbody></table></div>';
+  }
+
+  // Comments log
+  if(c.comments&&c.comments.length){
+    html+='<div style="margin-top:16px"><div class="dlb" style="margin-bottom:8px">Comentarios</div>'
+      +'<div style="display:flex;flex-direction:column;gap:6px">'
+      +c.comments.slice().reverse().map(function(cm){
+        return '<div style="padding:7px 10px;background:var(--muted);border-radius:var(--r);border:1px solid var(--brd)">'
+          +'<span style="font-size:9px;color:var(--faint)">'+fDate(cm.fecha)+'</span> '
+          +'<span style="font-size:12px">'+cm.texto+'</span></div>';
+      }).join('')
+      +'</div></div>';
+  }
 
   document.getElementById('dm-body').innerHTML=html;
   document.getElementById('mod-detail').classList.add('on');
