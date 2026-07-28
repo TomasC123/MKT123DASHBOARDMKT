@@ -1569,24 +1569,33 @@ function exportPDF(){
 
 // ── AI ───────────────────────────────────────────────
 function openAI(){document.getElementById('mod-ai').classList.add('on');logActivity('ai_query','Consultó análisis IA');runAI();}
+function mdToHtml(text){
+  if(!text)return '';
+  var esc=text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  esc=esc.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+  esc=esc.replace(/^-\s+(.+)$/gm,'• $1');
+  return esc.split('\n').join('<br>');
+}
+
 async function runAI(){
   var el=document.getElementById('ai-body');
   el.innerHTML='<p style="font-size:12px;color:var(--dim)">Analizando... ✦</p>';
   var camps=getDashCamps();
   var totB=0,totE=0,totL=0,totW=0;
   camps.forEach(function(c){if(c.budTotal)totB+=c.budTotal;if(c.effTotal)totE+=c.effTotal;if(!c.sinLeads&&c.leads)totL+=c.leads;if(!c.sinLeads&&c.wpp)totW+=c.wpp;});
-  var summary=camps.slice(0,30).map(function(c){return {codigo:c.codigo,producto:pName(c.producto),area:pArea(c.producto),tipo:c.tipo,budTotal:c.budTotal,effTotal:c.effTotal,leads:c.leads,wpp:c.wpp,cplV:cpl(c),sc:campScore(c)};});
-  var prompt='Analizá estos datos de campañas de marketing en español y respondé con: 1. Resumen ejecutivo 2. Qué está funcionando bien 3. Puntos de atención 4. Recomendaciones (máx 5) 5. Análisis operativo\n\nDatos: '+camps.length+' campañas, Presupuesto $'+totB+', Invertido $'+totE+', Leads '+totL+', WPP '+totW+'\nDetalle: '+JSON.stringify(summary);
+  // Resumen liviano: menos campañas y menos campos para respuesta rápida
+  var summary=camps.slice(0,15).map(function(c){return {cod:c.codigo,prod:pName(c.producto),tipo:c.tipo,bud:c.budTotal,eff:c.effTotal,leads:c.leads,cpl:cpl(c)};});
+  var prompt='Analizá brevemente estos datos de campañas de marketing en español. Respondé en formato breve con: 1. Resumen ejecutivo (2 líneas) 2. Qué funciona bien 3. Puntos de atención 4. Recomendaciones (máx 3) 5. Análisis operativo breve\n\nDatos: '+camps.length+' campañas, Presupuesto $'+totB+', Invertido $'+totE+', Leads '+totL+', WPP '+totW+'\nDetalle: '+JSON.stringify(summary);
   try{
-    var resp=await fetch('https://mkt-ai-proxy.tcoppede.workers.dev/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-5',max_tokens:1000,messages:[{role:'user',content:prompt}]})});
+    var resp=await fetch('https://mkt-ai-proxy.tcoppede.workers.dev/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:600,messages:[{role:'user',content:prompt}]})});
     var data=await resp.json();
     var textBlock=data.content&&data.content.find?data.content.find(function(b){return b.type==='text'&&b.text;}):null;
     var text=textBlock?textBlock.text:(data.error?('Error API: '+(data.error.message||JSON.stringify(data.error))):'Sin respuesta de la IA. Probá de nuevo.');
     el.innerHTML=text.split('\n\n').filter(function(s){return s.trim();}).map(function(s){
       var nl=s.indexOf('\n');var title=nl>-1?s.slice(0,nl):s;var body=nl>-1?s.slice(nl+1).trim():'';
       return '<div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--brd)">'
-        +'<div style="font-size:12px;font-weight:500;margin-bottom:6px">'+title+'</div>'
-        +(body?'<div style="font-size:12px;color:var(--dim);line-height:1.7">'+body.split('\n').join('<br>')+'</div>':'')
+        +'<div style="font-size:12px;font-weight:500;margin-bottom:6px">'+mdToHtml(title)+'</div>'
+        +(body?'<div style="font-size:12px;color:var(--dim);line-height:1.7">'+mdToHtml(body)+'</div>':'')
         +'</div>';
     }).join('');
   }catch(e){el.innerHTML='<p style="font-size:12px;color:var(--red)">Error al conectar con IA: '+e.message+'</p>';console.error(e);}
