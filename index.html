@@ -295,7 +295,9 @@ function switchTab(name){
   document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active');});
   document.querySelectorAll('iframe').forEach(function(f){f.classList.remove('active');});
   document.getElementById('logs-page').classList.remove('active');
-  document.getElementById('tab-'+name).classList.add('active');
+  document.getElementById('informe-page').classList.remove('active');
+  var tabBtn=document.getElementById('tab-'+name);
+  if(tabBtn)tabBtn.classList.add('active');
 
   if(name==='logs'){
     document.getElementById('logs-page').classList.add('active');
