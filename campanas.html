@@ -396,6 +396,7 @@ function editCamp(id){editId=id;goTo('nueva');}
 
 function goTo(p){
   curPage=p;
+  logActivity('nav','Navegó a '+p);
   document.querySelectorAll('.page').forEach(function(e){e.classList.remove('on');});
   document.querySelectorAll('.sb-btn').forEach(function(e){e.classList.remove('on');});
   document.getElementById('page-'+p).classList.add('on');
@@ -774,14 +775,16 @@ function submitForm(){
   if(editId){var idx=G.campaigns.findIndex(function(x){return x.id===editId;});if(idx>=0)G.campaigns[idx]=camp;}
   else G.campaigns.unshift(camp);
   editId=null;
+  logActivity('save_campaign','Guardó campaña '+camp.codigo);
   syncSave();
   goTo('lista');
 }
 
 function deleteFromForm(){
   if(!editId||!confirm('¿Eliminar esta campaña?'))return;
+  var cod=(G.campaigns.find(function(c){return c.id===editId;})||{}).codigo||editId;
   G.campaigns=G.campaigns.filter(function(c){return c.id!==editId;});
-  editId=null;syncSave();goTo('lista');
+  editId=null;logActivity('delete_campaign','Eliminó campaña '+cod);syncSave();goTo('lista');
 }
 
 // ── LISTA ────────────────────────────────────────────
@@ -1543,7 +1546,7 @@ function exportPDF(){
 }
 
 // ── AI ───────────────────────────────────────────────
-function openAI(){document.getElementById('mod-ai').classList.add('on');runAI();}
+function openAI(){document.getElementById('mod-ai').classList.add('on');logActivity('ai_query','Consultó análisis IA');runAI();}
 async function runAI(){
   var el=document.getElementById('ai-body');
   el.innerHTML='<p style="font-size:12px;color:var(--dim)">Analizando... ✦</p>';
@@ -1553,9 +1556,9 @@ async function runAI(){
   var summary=camps.slice(0,30).map(function(c){return {codigo:c.codigo,producto:pName(c.producto),area:pArea(c.producto),tipo:c.tipo,budTotal:c.budTotal,effTotal:c.effTotal,leads:c.leads,wpp:c.wpp,cplV:cpl(c),sc:campScore(c)};});
   var prompt='Analizá estos datos de campañas de marketing en español y respondé con: 1. Resumen ejecutivo 2. Qué está funcionando bien 3. Puntos de atención 4. Recomendaciones (máx 5) 5. Análisis operativo\n\nDatos: '+camps.length+' campañas, Presupuesto $'+totB+', Invertido $'+totE+', Leads '+totL+', WPP '+totW+'\nDetalle: '+JSON.stringify(summary);
   try{
-    var resp=await fetch('https://mkt-ai-proxy.tcoppede.workers.dev/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}]})});
+    var resp=await fetch('https://mkt-ai-proxy.tcoppede.workers.dev/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-5',max_tokens:1000,messages:[{role:'user',content:prompt}]})});
     var data=await resp.json();
-    var text=data.content&&data.content[0]?data.content[0].text:'Sin respuesta.';
+    var text=data.content&&data.content[0]?data.content[0].text:(data.error?('Error API: '+(data.error.message||JSON.stringify(data.error))):'Sin respuesta.');
     el.innerHTML=text.split('\n\n').filter(function(s){return s.trim();}).map(function(s){
       var nl=s.indexOf('\n');var title=nl>-1?s.slice(0,nl):s;var body=nl>-1?s.slice(nl+1).trim():'';
       return '<div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--brd)">'
@@ -1563,7 +1566,7 @@ async function runAI(){
         +(body?'<div style="font-size:12px;color:var(--dim);line-height:1.7">'+body.split('\n').join('<br>')+'</div>':'')
         +'</div>';
     }).join('');
-  }catch(e){el.innerHTML='<p style="font-size:12px;color:var(--red)">Error al conectar con IA.</p>';}
+  }catch(e){el.innerHTML='<p style="font-size:12px;color:var(--red)">Error al conectar con IA: '+e.message+'</p>';console.error(e);}
 }
 
 // ── IMPORT FROM CALENDAR ─────────────────────────────
@@ -1643,6 +1646,7 @@ function doImport(){
       imported++;
     }
   });
+  logActivity('calendar_import','Importó '+imported+' campañas desde el calendario');
   syncSave();closeImport();renderLista();
   alert(imported+' campaña'+(imported!==1?'s':'')+' importada'+(imported!==1?'s':'')+'. Completá los datos pendientes.');
 }
@@ -1659,6 +1663,7 @@ function doJSONImport(){
     var existingIds=new Set(G.campaigns.map(function(c){return c.id;}));
     var added=0,skipped=0;
     incoming.forEach(function(c){if(existingIds.has(c.id))skipped++;else{G.campaigns.push(c);added++;}});
+    logActivity('json_import','Importó '+added+' campañas desde JSON');
     syncSave();
     res.innerHTML='<span style="color:var(--green)">✓ '+added+' importadas.</span>'+(skipped?' '+skipped+' ya existían.':'');
     setTimeout(function(){goTo('lista');},1500);
@@ -2167,14 +2172,31 @@ function cfgAddTipo(){
 }
 function cfgAddModo(){var n=document.getElementById('cm-name').value.trim();if(!n)return;G.modos.push({id:'m'+Date.now(),name:n});renderConfig();}
 
+// ── LOGGING ──────────────────────────────────────────
+async function logActivity(action,detail){
+  try{
+    var r=await fetch('https://api.jsonbin.io/v3/b/'+BIN_ID+'/latest',{headers:{'X-Master-Key':API_KEY}});
+    if(!r.ok)return;
+    var rec=(await r.json()).record||{};
+    var logs=rec.logs||[];
+    logs.push({ts:new Date().toISOString(),role:userRole||'—',user:userName||'—',page:'campanas',action:action,detail:detail||''});
+    if(logs.length>300)logs=logs.slice(logs.length-300);
+    rec.logs=logs;
+    await fetch('https://api.jsonbin.io/v3/b/'+BIN_ID,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':API_KEY},body:JSON.stringify(rec)});
+  }catch(e){console.error('log error',e);}
+}
+
 // ── AUTH ─────────────────────────────────────────────
-var HASH_MKT='6adc93777146b2d318afe6f9de20e4ad6954ddfa5d9de9afb6885d39b81b6c5c';
-var HASH_VIS='5a80fe2366cf398f675d78e892649bab31f07d7486eb51562a103fe509e4db95';
-var userRole=null; // 'mkt' or 'visitor'
+var PROFILES=[
+  {name:'Victoria Scarpettini',hash:'e39e82d0c063a44d845d1d3a6c610f2cf2d8f583b37de02e34e143adca8f585b',role:'mkt'},
+  {name:'Valentina Maroño Ferrer',hash:'b3fd42514ae4733d141b3e767b78fde0e3828f483788460ff85fc5a441ba98cf',role:'mkt'},
+  {name:'Administrador (Tomás Coppede)',hash:'63d0504d1132b7cbff51d6253504430ba72f85ec2f2e2ab2fa1169f102f30d48',role:'admin'},
+  {name:'Visita',hash:'fb113b4df80f8277df97fdbd31ebdbafea1847ae010c54d31db9da40a2964b04',role:'visitor'}
+];
+var userRole=null;
+var userName=null;
 
 function sha256(str){
-  // Simple async-free hash using SubtleCrypto — but we need sync
-  // Use precomputed approach: compare after async hash
   return crypto.subtle.digest('SHA-256', new TextEncoder().encode(str))
     .then(function(buf){
       return Array.from(new Uint8Array(buf)).map(function(b){return b.toString(16).padStart(2,'0');}).join('');
@@ -2184,11 +2206,10 @@ function sha256(str){
 function doLogin(){
   var pwd=document.getElementById('login-pwd').value;
   sha256(pwd).then(function(hash){
-    if(hash===HASH_MKT){
-      userRole='mkt';
-      startApp();
-    }else if(hash===HASH_VIS){
-      userRole='visitor';
+    var profile=PROFILES.find(function(p){return p.hash===hash;});
+    if(profile){
+      userRole=profile.role;
+      userName=profile.name;
       startApp();
     }else{
       document.getElementById('login-err').textContent='Contraseña incorrecta';
@@ -2200,9 +2221,9 @@ function doLogin(){
 function startApp(){
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app-shell').style.display='flex';
+  logActivity('login','Inicio de sesión en Campañas ('+(userName||userRole)+')');
   if(userRole==='visitor'){
     document.getElementById('ro-badge').style.display='block';
-    // Hide edit buttons for visitors
     disableForVisitor();
   }
   renderAll();
@@ -2211,37 +2232,57 @@ function startApp(){
 }
 
 function disableForVisitor(){
-  // Override functions that modify data
-  submitForm=function(){alert('Modo solo lectura. Contactá al equipo de MKT.');};
-  deleteFromForm=function(){alert('Modo solo lectura.');};
-  syncSave=function(){return Promise.resolve();}; // no-op save
-  doSave=function(){alert('Modo solo lectura.');};
-  submitMailing=function(){alert('Modo solo lectura.');};
-  deleteMailing=function(){alert('Modo solo lectura.');};
-  submitVenta=function(){alert('Modo solo lectura.');};
-  deleteVenta=function(){alert('Modo solo lectura.');};
-  doJSONImport=function(){alert('Modo solo lectura.');};
-  // Hide new/edit buttons via CSS
+  // Bloquea por completo la creación/edición: ni se puede llegar a los formularios
+  newCamp=function(){alert('Perfil Visita: solo lectura. No podés crear ni editar campañas.');};
+  editCamp=function(){alert('Perfil Visita: solo lectura. No podés crear ni editar campañas.');};
+  submitForm=function(){alert('Perfil Visita: solo lectura.');};
+  deleteFromForm=function(){alert('Perfil Visita: solo lectura.');};
+  openCancelModal=function(){alert('Perfil Visita: solo lectura.');};
+  openImport=function(){alert('Perfil Visita: solo lectura.');};
+  doImport=function(){alert('Perfil Visita: solo lectura.');};
+  doJSONImport=function(){alert('Perfil Visita: solo lectura.');};
+  newMailing=function(){alert('Perfil Visita: solo lectura.');};
+  editMailing=function(){alert('Perfil Visita: solo lectura.');};
+  submitMailing=function(){alert('Perfil Visita: solo lectura.');};
+  deleteMailing=function(){alert('Perfil Visita: solo lectura.');};
+  newVenta=function(){alert('Perfil Visita: solo lectura.');};
+  editVenta=function(){alert('Perfil Visita: solo lectura.');};
+  submitVenta=function(){alert('Perfil Visita: solo lectura.');};
+  deleteVenta=function(){alert('Perfil Visita: solo lectura.');};
+  cfgAddProd=function(){alert('Perfil Visita: solo lectura.');};
+  cfgAddTipo=function(){alert('Perfil Visita: solo lectura.');};
+  cfgAddModo=function(){alert('Perfil Visita: solo lectura.');};
+  cfgDel=function(){alert('Perfil Visita: solo lectura.');};
+  syncSave=function(){return Promise.resolve();}; // nunca escribe al servidor
+  doSave=function(){alert('Perfil Visita: solo lectura.');};
+  // Ocultar/deshabilitar visualmente los botones de acción (los de descarga quedan intactos)
   var style=document.createElement('style');
-  style.textContent='.btn-ink,.btn-danger,.save-btn{opacity:.35!important;pointer-events:none!important}';
+  style.textContent=
+    '.btn-ink,.btn-danger,.save-btn{opacity:.35!important;pointer-events:none!important}'
+    +'button[onclick^="newCamp"],button[onclick^="newMailing"],button[onclick^="newVenta"],'
+    +'button[onclick^="openImport"],button[onclick^="editMailing"],button[onclick^="editVenta"],'
+    +'#dm-edit-btn,#dm-cancel-btn{opacity:.35!important;pointer-events:none!important}';
   document.head.appendChild(style);
 }
 
 // ── INIT ─────────────────────────────────────────────
 // Don't auto-start — wait for login
-// But check sessionStorage for already-logged-in session
+// But check sessionStorage for already-logged-in session (compartida con el panel)
 (function(){
-  var saved=sessionStorage.getItem('campanas_role');
-  if(saved==='mkt'||saved==='visitor'){
+  var saved=sessionStorage.getItem('panel_role');
+  var savedUser=sessionStorage.getItem('panel_user');
+  if(saved==='mkt'||saved==='visitor'||saved==='admin'){
     userRole=saved;
+    userName=savedUser||null;
     startApp();
   }
 })();
 
-// Save role to session on login
+// Save role + user to session on login
 var _startApp=startApp;
 startApp=function(){
-  sessionStorage.setItem('campanas_role',userRole);
+  sessionStorage.setItem('panel_role',userRole);
+  if(userName)sessionStorage.setItem('panel_user',userName);
   _startApp();
 };
 </script>
