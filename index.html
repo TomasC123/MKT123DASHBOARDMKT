@@ -137,7 +137,7 @@ const CAMPANAS_BIN='6a0604f4adc21f119a9e13b5';
 var PROFILES=[
   {name:'Victoria Scarpettini',hash:'e39e82d0c063a44d845d1d3a6c610f2cf2d8f583b37de02e34e143adca8f585b',role:'mkt'},
   {name:'Valentina Maroño Ferrer',hash:'b3fd42514ae4733d141b3e767b78fde0e3828f483788460ff85fc5a441ba98cf',role:'mkt'},
-  {name:'Administrador (Tomás Coppede)',hash:'63d0504d1132b7cbff51d6253504430ba72f85ec2f2e2ab2fa1169f102f30d48',role:'admin'},
+  {name:'Tomás Coppede',hash:'63d0504d1132b7cbff51d6253504430ba72f85ec2f2e2ab2fa1169f102f30d48',role:'admin'},
   {name:'Visita',hash:'fb113b4df80f8277df97fdbd31ebdbafea1847ae010c54d31db9da40a2964b04',role:'visitor'}
 ];
 
@@ -216,7 +216,7 @@ function goHome(){
   if(role==='admin')tiles.push({id:'logs',icon:'☰',label:'Logs',sub:'Actividad del equipo'});
 
   document.getElementById('home-tiles').innerHTML=tiles.map(function(t){
-    return '<div class="home-tile" onclick="enterApp(\\''+t.id+'\\')">'
+    return '<div class="home-tile" data-tab="'+t.id+'" onclick="enterApp(this.dataset.tab)">'
       +'<span class="home-tile-icon">'+t.icon+'</span>'
       +'<div class="home-tile-label">'+t.label+'</div>'
       +'<div class="home-tile-sub">'+t.sub+'</div>'
@@ -224,7 +224,7 @@ function goHome(){
   }).join('');
 
   var pill=document.getElementById('role-pill');
-  if(role==='admin')pill.textContent=(user||'')+' · Administrador';
+  if(role==='admin')pill.textContent=(user||'')+' · Admin';
   else if(role==='mkt')pill.textContent=(user||'')+' · MKT';
   else pill.textContent=(user||'')+' · solo lectura';
 
