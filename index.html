@@ -17,36 +17,210 @@ body{background:#0f0e0c;font-family:'Geist Mono',monospace;height:100vh;display:
 .tab:hover{color:rgba(247,245,240,.75)}
 .tab.active{color:#f7f5f0;border-bottom-color:#f7f5f0;font-weight:500}
 .tab-icon{font-size:14px}
+.role-badge{margin-left:auto;margin-right:20px;font-size:10px;color:rgba(247,245,240,.4);display:flex;align-items:center;gap:8px}
+.role-pill{padding:3px 10px;border-radius:20px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12)}
+.logout-btn{background:none;border:none;color:rgba(247,245,240,.4);cursor:pointer;font-family:'Geist Mono',monospace;font-size:10px;text-decoration:underline}
+.logout-btn:hover{color:rgba(247,245,240,.8)}
 .frame-wrap{flex:1;position:relative}
 iframe{position:absolute;inset:0;width:100%;height:100%;border:none;display:none}
 iframe.active{display:block}
+.logs-page{position:absolute;inset:0;display:none;overflow-y:auto;background:#f7f5f0;padding:32px 36px}
+.logs-page.active{display:block}
+.logs-title{font-family:'Instrument Serif',Georgia,serif;font-size:32px;font-style:italic;color:#0f0e0c;margin-bottom:24px}
+.logs-table{width:100%;border-collapse:collapse;font-size:12px;background:#fff;border:1px solid #ddd8ce;border-radius:12px;overflow:hidden}
+.logs-table th{padding:9px 13px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:#9a9286;border-bottom:1px solid #ddd8ce;background:#ede9e1;font-weight:500}
+.logs-table td{padding:9px 13px;border-bottom:1px solid #ddd8ce;color:#0f0e0c}
+.logs-table tr:last-child td{border-bottom:none}
+.logs-empty{padding:60px 20px;text-align:center;color:#c4bfb5;font-size:12px}
+.logs-refresh{padding:8px 14px;border-radius:6px;border:1px solid #ccc6ba;background:#fff;color:#0f0e0c;font-family:'Geist Mono',monospace;font-size:11px;cursor:pointer;margin-bottom:16px}
+.logs-refresh:hover{background:#ede9e1}
+.role-tag{display:inline-block;padding:1px 8px;border-radius:20px;font-size:10px;font-weight:500}
+.role-tag.mkt{background:#eef3fc;color:#1a4fa8;border:1px solid #c5d7f7}
+.role-tag.visitor{background:#fdf8ec;color:#8a6500;border:1px solid #f0dfa0}
+
+/* LOGIN SCREEN */
+.login-screen{position:fixed;inset:0;background:#0f0e0c;display:flex;align-items:center;justify-content:center;z-index:9999}
+.login-box{background:#f7f5f0;border-radius:12px;padding:40px 48px;width:100%;max-width:380px;text-align:center}
+.login-logo{font-family:'Instrument Serif',Georgia,serif;font-size:32px;font-style:italic;color:#0f0e0c;margin-bottom:4px}
+.login-sub{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#c4bfb5;margin-bottom:32px}
+.login-field{width:100%;padding:10px 14px;border:1px solid #ccc6ba;border-radius:6px;font-family:'Geist Mono',monospace;font-size:14px;background:#fff;color:#0f0e0c;outline:none;text-align:center;letter-spacing:.1em;margin-bottom:10px}
+.login-field:focus{border-color:#0f0e0c}
+.login-btn{width:100%;padding:11px;border-radius:6px;border:none;background:#0f0e0c;color:#f7f5f0;font-family:'Geist Mono',monospace;font-size:12px;cursor:pointer;margin-bottom:8px;letter-spacing:.04em}
+.login-btn:hover{opacity:.85}
+.login-err{font-size:11px;color:#c0392b;min-height:18px;margin-top:4px}
 </style>
 </head>
 <body>
-<div class="topbar">
-  <div class="logo">
-    <span class="logo-title">MKT</span>
-    <span class="logo-sub">Panel de Control</span>
-  </div>
-  <div class="tabs">
-    <button class="tab active" onclick="switchTab('calendario')" id="tab-calendario">
-      <span class="tab-icon">◫</span> Calendario
-    </button>
-    <button class="tab" onclick="switchTab('campanas')" id="tab-campanas">
-      <span class="tab-icon">◈</span> Campañas
-    </button>
+
+<!-- LOGIN SCREEN -->
+<div class="login-screen" id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">MKT</div>
+    <div class="login-sub">Panel de Control</div>
+    <input class="login-field" type="password" id="login-pwd" placeholder="Contraseña" onkeydown="if(event.key==='Enter')doLogin()">
+    <button class="login-btn" onclick="doLogin()">Ingresar</button>
+    <div class="login-err" id="login-err"></div>
   </div>
 </div>
-<div class="frame-wrap">
-  <iframe id="frame-calendario" class="active" src="calendario.html"></iframe>
-  <iframe id="frame-campanas" src="campanas.html"></iframe>
+
+<div id="app" style="display:none;flex-direction:column;height:100vh">
+  <div class="topbar">
+    <div class="logo">
+      <span class="logo-title">MKT</span>
+      <span class="logo-sub">Panel de Control</span>
+    </div>
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('calendario')" id="tab-calendario">
+        <span class="tab-icon">◫</span> Calendario
+      </button>
+      <button class="tab" onclick="switchTab('campanas')" id="tab-campanas">
+        <span class="tab-icon">◈</span> Campañas
+      </button>
+      <button class="tab" onclick="switchTab('logs')" id="tab-logs">
+        <span class="tab-icon">☰</span> Logs
+      </button>
+    </div>
+    <div class="role-badge">
+      <span class="role-pill" id="role-pill">—</span>
+      <button class="logout-btn" onclick="doLogout()">Salir</button>
+    </div>
+  </div>
+  <div class="frame-wrap">
+    <iframe id="frame-calendario" class="active" src="calendario.html"></iframe>
+    <iframe id="frame-campanas" src="campanas.html"></iframe>
+    <div class="logs-page" id="logs-page">
+      <h1 class="logs-title">Logs de actividad</h1>
+      <button class="logs-refresh" onclick="loadLogs()">↺ Recargar</button>
+      <div id="logs-content"></div>
+    </div>
+  </div>
 </div>
+
 <script>
+const API_KEY='$2a$10$8zdRepF9eXqIWoAegLw22uCbihfDgvF2UO1kanxuRU8a.JZ2.uyDW';
+const CAMPANAS_BIN='6a0604f4adc21f119a9e13b5';
+
+var PROFILES=[
+  {name:'Victoria Scarpettini',hash:'e39e82d0c063a44d845d1d3a6c610f2cf2d8f583b37de02e34e143adca8f585b',role:'mkt'},
+  {name:'Valentina Maroño Ferrer',hash:'b3fd42514ae4733d141b3e767b78fde0e3828f483788460ff85fc5a441ba98cf',role:'mkt'},
+  {name:'Administrador (Tomás Coppede)',hash:'63d0504d1132b7cbff51d6253504430ba72f85ec2f2e2ab2fa1169f102f30d48',role:'admin'},
+  {name:'Visita',hash:'fb113b4df80f8277df97fdbd31ebdbafea1847ae010c54d31db9da40a2964b04',role:'visitor'}
+];
+
+function sha256(str){
+  return crypto.subtle.digest('SHA-256', new TextEncoder().encode(str))
+    .then(function(buf){
+      return Array.from(new Uint8Array(buf)).map(function(b){return b.toString(16).padStart(2,'0');}).join('');
+    });
+}
+
+function doLogin(){
+  var pwd=document.getElementById('login-pwd').value;
+  sha256(pwd).then(function(hash){
+    var profile=PROFILES.find(function(p){return p.hash===hash;});
+    if(profile){
+      sessionStorage.setItem('panel_role',profile.role);
+      sessionStorage.setItem('panel_user',profile.name);
+      logActivity(profile.role,profile.name,'login','Inicio de sesión');
+      startApp(profile.role,profile.name);
+    }else{
+      document.getElementById('login-err').textContent='Contraseña incorrecta';
+      document.getElementById('login-pwd').value='';
+    }
+  });
+}
+
+function doLogout(){
+  var role=sessionStorage.getItem('panel_role');
+  var user=sessionStorage.getItem('panel_user');
+  logActivity(role,user,'logout','Cierre de sesión');
+  sessionStorage.removeItem('panel_role');
+  sessionStorage.removeItem('panel_user');
+  location.reload();
+}
+
+function startApp(role,name){
+  document.getElementById('login-screen').style.display='none';
+  var app=document.getElementById('app');
+  app.style.display='flex';
+  var pill=document.getElementById('role-pill');
+  var label=name||'';
+  if(role==='admin')pill.textContent=label+' · Administrador';
+  else if(role==='mkt')pill.textContent=label+' · MKT';
+  else pill.textContent=label+' · solo lectura';
+}
+
+(function(){
+  var saved=sessionStorage.getItem('panel_role');
+  var savedUser=sessionStorage.getItem('panel_user');
+  if(saved==='mkt'||saved==='visitor'||saved==='admin')startApp(saved,savedUser);
+})();
+
 function switchTab(name){
   document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active');});
   document.querySelectorAll('iframe').forEach(function(f){f.classList.remove('active');});
+  document.getElementById('logs-page').classList.remove('active');
   document.getElementById('tab-'+name).classList.add('active');
-  document.getElementById('frame-'+name).classList.add('active');
+  if(name==='logs'){
+    document.getElementById('logs-page').classList.add('active');
+    loadLogs();
+  }else{
+    document.getElementById('frame-'+name).classList.add('active');
+  }
+  var role=sessionStorage.getItem('panel_role');
+  var user=sessionStorage.getItem('panel_user');
+  logActivity(role,user,'nav','Navegó a '+name);
+}
+
+// ── LOGGING ───────────────────────────────────────────
+async function logActivity(role,user,action,detail){
+  try{
+    var r=await fetch('https://api.jsonbin.io/v3/b/'+CAMPANAS_BIN+'/latest',{headers:{'X-Master-Key':API_KEY}});
+    if(!r.ok)return;
+    var rec=(await r.json()).record||{};
+    var logs=rec.logs||[];
+    logs.push({
+      ts:new Date().toISOString(),
+      role:role||'—',
+      user:user||'—',
+      page:'index',
+      action:action,
+      detail:detail||''
+    });
+    if(logs.length>300)logs=logs.slice(logs.length-300);
+    rec.logs=logs;
+    await fetch('https://api.jsonbin.io/v3/b/'+CAMPANAS_BIN,{
+      method:'PUT',
+      headers:{'Content-Type':'application/json','X-Master-Key':API_KEY},
+      body:JSON.stringify(rec)
+    });
+  }catch(e){console.error('log error',e);}
+}
+
+async function loadLogs(){
+  var el=document.getElementById('logs-content');
+  el.innerHTML='<p style="font-size:12px;color:#9a9286">Cargando...</p>';
+  try{
+    var r=await fetch('https://api.jsonbin.io/v3/b/'+CAMPANAS_BIN+'/latest',{headers:{'X-Master-Key':API_KEY}});
+    var rec=(await r.json()).record||{};
+    var logs=(rec.logs||[]).slice().reverse();
+    if(!logs.length){el.innerHTML='<div class="logs-empty">Sin actividad registrada todavía.</div>';return;}
+    el.innerHTML='<table class="logs-table"><thead><tr><th>Fecha / Hora</th><th>Usuario</th><th>Perfil</th><th>Página</th><th>Acción</th><th>Detalle</th></tr></thead><tbody>'
+      +logs.map(function(l){
+        var d=new Date(l.ts);
+        var fecha=d.toLocaleDateString('es-AR')+' '+d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
+        var roleClass=l.role==='admin'?'mkt':l.role==='mkt'?'mkt':'visitor';
+        return '<tr><td style="color:#9a9286;font-size:11px">'+fecha+'</td>'
+          +'<td>'+(l.user||'—')+'</td>'
+          +'<td><span class="role-tag '+roleClass+'">'+(l.role||'—')+'</span></td>'
+          +'<td>'+(l.page||'—')+'</td>'
+          +'<td>'+l.action+'</td>'
+          +'<td style="color:#9a9286;font-size:11px">'+(l.detail||'')+'</td></tr>';
+      }).join('')
+      +'</tbody></table>';
+  }catch(e){
+    el.innerHTML='<div class="logs-empty">Error al cargar logs.</div>';
+  }
 }
 </script>
 </body>
