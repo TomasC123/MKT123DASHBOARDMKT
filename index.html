@@ -401,6 +401,16 @@ const CAL_BIN='69e68df036566621a8d3ca66';
 function fmtM(n){return n!=null?'$'+Math.round(n).toLocaleString():'—';}
 function pctM(n){return n!=null?Math.round(n)+'%':'—';}
 
+function mdToHtml(text){
+  if(!text)return '';
+  var esc=text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  // **negrita**
+  esc=esc.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+  // bullets "- texto" al inicio de línea
+  esc=esc.replace(/^-\s+(.+)$/gm,'• $1');
+  return esc.split('\n').join('<br>');
+}
+
 async function generarInforme(){
   var intro=document.getElementById('informe-intro');
   var body=document.getElementById('informe-body');
@@ -585,31 +595,31 @@ async function generarInforme(){
       +'</div>'
 
       +'<div class="informe-section"><div class="informe-section-title">Resumen Ejecutivo</div>'
-      +'<div class="informe-section-body">'+(sections['Resumen Ejecutivo']||'Sin datos suficientes.').split('\n').join('<br>')+'</div></div>'
+      +'<div class="informe-section-body">'+mdToHtml(sections['Resumen Ejecutivo']||'Sin datos suficientes.')+'</div></div>'
 
       +'<div class="informe-section"><div class="informe-section-title">Resultados de Campañas</div>'
       +'<div style="margin-bottom:14px">'+barAreaHTML+'</div>'
-      +'<div class="informe-section-body">'+(sections['Resultados de Campañas']||'').split('\n').join('<br>')+'</div></div>'
+      +'<div class="informe-section-body">'+mdToHtml(sections['Resultados de Campañas']||'')+'</div></div>'
 
       +'<div class="informe-section"><div class="informe-section-title">Tendencia mensual · Presupuesto vs Efectivo</div>'
       +lineChartHTML+'</div>'
 
       +'<div class="informe-section"><div class="informe-section-title">Mailings</div>'
-      +'<div class="informe-section-body">'+(sections['Mailings']||'').split('\n').join('<br>')+'</div></div>'
+      +'<div class="informe-section-body">'+mdToHtml(sections['Mailings']||'')+'</div></div>'
 
       +'<div class="informe-section"><div class="informe-section-title">Ventas y ROI</div>'
       +(Object.keys(byProdVentas).length?'<div style="margin-bottom:14px">'+barProdVentasHTML+'</div>':'')
-      +'<div class="informe-section-body">'+(sections['Ventas y ROI']||'').split('\n').join('<br>')+'</div></div>'
+      +'<div class="informe-section-body">'+mdToHtml(sections['Ventas y ROI']||'')+'</div></div>'
 
       +'<div class="informe-section"><div class="informe-section-title">Presupuesto y Ejecución</div>'
-      +'<div class="informe-section-body">'+(sections['Presupuesto y Ejecución']||'').split('\n').join('<br>')+'</div></div>'
+      +'<div class="informe-section-body">'+mdToHtml(sections['Presupuesto y Ejecución']||'')+'</div></div>'
 
       +'<div class="informe-section"><div class="informe-section-title">Actividad del Equipo</div>'
-      +'<div class="informe-section-body">'+(sections['Actividad del Equipo']||'').split('\n').join('<br>')+'</div></div>'
+      +'<div class="informe-section-body">'+mdToHtml(sections['Actividad del Equipo']||'')+'</div></div>'
 
       +'<div class="informe-section" style="background:#fdf8ec;border:1px solid #f0dfa0;border-radius:10px;padding:18px 20px">'
       +'<div class="informe-section-title" style="color:#8a6500;border-bottom-color:#f0dfa0">Recomendaciones Prioritarias</div>'
-      +'<div class="informe-section-body">'+(sections['Recomendaciones Prioritarias']||'').split('\n').join('<br>')+'</div></div>'
+      +'<div class="informe-section-body">'+mdToHtml(sections['Recomendaciones Prioritarias']||'')+'</div></div>'
 
       +'</div>';
 
