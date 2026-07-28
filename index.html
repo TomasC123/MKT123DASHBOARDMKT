@@ -9,7 +9,7 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{background:#0f0e0c;font-family:'Geist Mono',monospace;height:100vh;display:flex;flex-direction:column;overflow:hidden}
 .topbar{display:flex;align-items:center;gap:0;padding:0;background:#0f0e0c;border-bottom:1px solid rgba(255,255,255,.08);flex-shrink:0}
-.logo{padding:16px 28px;border-right:1px solid rgba(255,255,255,.08)}
+.logo{padding:16px 28px;border-right:1px solid rgba(255,255,255,.08);cursor:pointer}
 .logo-title{font-family:'Instrument Serif',Georgia,serif;font-size:18px;font-style:italic;color:#f7f5f0;display:block;line-height:1}
 .logo-sub{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:rgba(247,245,240,.3)}
 .tabs{display:flex;flex:1}
@@ -40,14 +40,31 @@ iframe.active{display:block}
 
 /* LOGIN SCREEN */
 .login-screen{position:fixed;inset:0;background:#0f0e0c;display:flex;align-items:center;justify-content:center;z-index:9999}
-.login-box{background:#f7f5f0;border-radius:12px;padding:40px 48px;width:100%;max-width:380px;text-align:center}
+.login-box{background:#f7f5f0;border-radius:12px;padding:40px 48px;width:100%;max-width:400px;text-align:center}
 .login-logo{font-family:'Instrument Serif',Georgia,serif;font-size:32px;font-style:italic;color:#0f0e0c;margin-bottom:4px}
 .login-sub{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#c4bfb5;margin-bottom:32px}
+.profile-btn{display:block;width:100%;padding:13px 16px;margin-bottom:8px;border-radius:8px;border:1px solid #ccc6ba;background:#fff;color:#0f0e0c;font-family:'Geist Mono',monospace;font-size:13px;cursor:pointer;text-align:left;transition:all .15s}
+.profile-btn:hover{border-color:#0f0e0c;background:#ede9e1}
 .login-field{width:100%;padding:10px 14px;border:1px solid #ccc6ba;border-radius:6px;font-family:'Geist Mono',monospace;font-size:14px;background:#fff;color:#0f0e0c;outline:none;text-align:center;letter-spacing:.1em;margin-bottom:10px}
 .login-field:focus{border-color:#0f0e0c}
 .login-btn{width:100%;padding:11px;border-radius:6px;border:none;background:#0f0e0c;color:#f7f5f0;font-family:'Geist Mono',monospace;font-size:12px;cursor:pointer;margin-bottom:8px;letter-spacing:.04em}
 .login-btn:hover{opacity:.85}
+.login-back{background:none;border:none;color:#9a9286;font-family:'Geist Mono',monospace;font-size:10px;cursor:pointer;text-decoration:underline;margin-bottom:16px}
 .login-err{font-size:11px;color:#c0392b;min-height:18px;margin-top:4px}
+.chosen-name{font-family:'Instrument Serif',Georgia,serif;font-size:20px;font-style:italic;color:#0f0e0c;margin-bottom:18px}
+
+/* HOME MENU */
+.home-screen{position:fixed;inset:0;background:#f7f5f0;display:none;flex-direction:column;align-items:center;justify-content:center;z-index:500;gap:24px}
+.home-screen.active{display:flex}
+.home-title{font-family:'Instrument Serif',Georgia,serif;font-size:34px;font-style:italic;color:#0f0e0c}
+.home-sub{font-size:11px;color:#9a9286;margin-bottom:8px}
+.home-tiles{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;max-width:700px}
+.home-tile{background:#fff;border:1px solid #ddd8ce;border-radius:14px;padding:32px 40px;width:200px;text-align:center;cursor:pointer;transition:all .15s;font-family:'Geist Mono',monospace}
+.home-tile:hover{border-color:#0f0e0c;transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.06)}
+.home-tile-icon{font-size:30px;margin-bottom:10px;display:block}
+.home-tile-label{font-size:13px;color:#0f0e0c;font-weight:500}
+.home-tile-sub{font-size:9px;color:#9a9286;text-transform:uppercase;letter-spacing:.08em;margin-top:4px}
+.home-logout{margin-top:10px;background:none;border:none;color:#9a9286;font-family:'Geist Mono',monospace;font-size:10px;cursor:pointer;text-decoration:underline}
 </style>
 </head>
 <body>
@@ -57,26 +74,43 @@ iframe.active{display:block}
   <div class="login-box">
     <div class="login-logo">MKT</div>
     <div class="login-sub">Panel de Control</div>
-    <input class="login-field" type="password" id="login-pwd" placeholder="Contraseña" onkeydown="if(event.key==='Enter')doLogin()">
-    <button class="login-btn" onclick="doLogin()">Ingresar</button>
-    <div class="login-err" id="login-err"></div>
+
+    <div id="step-profiles">
+      <div id="profiles-list"></div>
+    </div>
+
+    <div id="step-password" style="display:none">
+      <div class="chosen-name" id="chosen-name-label"></div>
+      <input class="login-field" type="password" id="login-pwd" placeholder="Contraseña" onkeydown="if(event.key==='Enter')doLogin()">
+      <button class="login-btn" onclick="doLogin()">Ingresar</button>
+      <button class="login-back" onclick="backToProfiles()">← Elegir otro perfil</button>
+      <div class="login-err" id="login-err"></div>
+    </div>
   </div>
+</div>
+
+<!-- HOME MENU -->
+<div class="home-screen" id="home-screen">
+  <div class="home-title">MKT</div>
+  <div class="home-sub" id="home-welcome"></div>
+  <div class="home-tiles" id="home-tiles"></div>
+  <button class="home-logout" onclick="doLogout()">Cerrar sesión</button>
 </div>
 
 <div id="app" style="display:none;flex-direction:column;height:100vh">
   <div class="topbar">
-    <div class="logo">
+    <div class="logo" onclick="goHome()">
       <span class="logo-title">MKT</span>
       <span class="logo-sub">Panel de Control</span>
     </div>
     <div class="tabs">
-      <button class="tab active" onclick="switchTab('calendario')" id="tab-calendario">
+      <button class="tab" onclick="switchTab('calendario')" id="tab-calendario">
         <span class="tab-icon">◫</span> Calendario
       </button>
       <button class="tab" onclick="switchTab('campanas')" id="tab-campanas">
         <span class="tab-icon">◈</span> Campañas
       </button>
-      <button class="tab" onclick="switchTab('logs')" id="tab-logs">
+      <button class="tab" onclick="switchTab('logs')" id="tab-logs" style="display:none">
         <span class="tab-icon">☰</span> Logs
       </button>
     </div>
@@ -86,8 +120,8 @@ iframe.active{display:block}
     </div>
   </div>
   <div class="frame-wrap">
-    <iframe id="frame-calendario" class="active" src="calendario.html"></iframe>
-    <iframe id="frame-campanas" src="campanas.html"></iframe>
+    <iframe id="frame-calendario"></iframe>
+    <iframe id="frame-campanas"></iframe>
     <div class="logs-page" id="logs-page">
       <h1 class="logs-title">Logs de actividad</h1>
       <button class="logs-refresh" onclick="loadLogs()">↺ Recargar</button>
@@ -107,6 +141,9 @@ var PROFILES=[
   {name:'Visita',hash:'fb113b4df80f8277df97fdbd31ebdbafea1847ae010c54d31db9da40a2964b04',role:'visitor'}
 ];
 
+var chosenProfile=null;
+var loadedFrames={};
+
 function sha256(str){
   return crypto.subtle.digest('SHA-256', new TextEncoder().encode(str))
     .then(function(buf){
@@ -114,15 +151,39 @@ function sha256(str){
     });
 }
 
+// ── LOGIN: STEP 1 — elegir perfil ─────────────────────
+function renderProfileList(){
+  document.getElementById('profiles-list').innerHTML=PROFILES.map(function(p,i){
+    return '<button class="profile-btn" data-i="'+i+'" onclick="selectProfile('+i+')">'+p.name+'</button>';
+  }).join('');
+}
+renderProfileList();
+
+function selectProfile(i){
+  chosenProfile=PROFILES[i];
+  document.getElementById('step-profiles').style.display='none';
+  document.getElementById('step-password').style.display='block';
+  document.getElementById('chosen-name-label').textContent=chosenProfile.name;
+  document.getElementById('login-pwd').value='';
+  document.getElementById('login-err').textContent='';
+  document.getElementById('login-pwd').focus();
+}
+function backToProfiles(){
+  chosenProfile=null;
+  document.getElementById('step-password').style.display='none';
+  document.getElementById('step-profiles').style.display='block';
+}
+
+// ── LOGIN: STEP 2 — contraseña ────────────────────────
 function doLogin(){
+  if(!chosenProfile)return;
   var pwd=document.getElementById('login-pwd').value;
   sha256(pwd).then(function(hash){
-    var profile=PROFILES.find(function(p){return p.hash===hash;});
-    if(profile){
-      sessionStorage.setItem('panel_role',profile.role);
-      sessionStorage.setItem('panel_user',profile.name);
-      logActivity(profile.role,profile.name,'login','Inicio de sesión');
-      startApp(profile.role,profile.name);
+    if(hash===chosenProfile.hash){
+      sessionStorage.setItem('panel_role',chosenProfile.role);
+      sessionStorage.setItem('panel_user',chosenProfile.name);
+      logActivity(chosenProfile.role,chosenProfile.name,'login','Inicio de sesión');
+      goHome();
     }else{
       document.getElementById('login-err').textContent='Contraseña incorrecta';
       document.getElementById('login-pwd').value='';
@@ -139,33 +200,76 @@ function doLogout(){
   location.reload();
 }
 
-function startApp(role,name){
+// ── HOME MENU (después de loguearse) ──────────────────
+function goHome(){
+  var role=sessionStorage.getItem('panel_role');
+  var user=sessionStorage.getItem('panel_user');
   document.getElementById('login-screen').style.display='none';
-  var app=document.getElementById('app');
-  app.style.display='flex';
+  document.getElementById('app').style.display='none';
+  document.getElementById('home-screen').classList.add('active');
+  document.getElementById('home-welcome').textContent=user?('Hola, '+user):'';
+
+  var tiles=[
+    {id:'calendario',icon:'◫',label:'Calendario',sub:'Planificación mensual'},
+    {id:'campanas',icon:'◈',label:'Campañas',sub:'Gestión y resultados'}
+  ];
+  if(role==='admin')tiles.push({id:'logs',icon:'☰',label:'Logs',sub:'Actividad del equipo'});
+
+  document.getElementById('home-tiles').innerHTML=tiles.map(function(t){
+    return '<div class="home-tile" onclick="enterApp(\\''+t.id+'\\')">'
+      +'<span class="home-tile-icon">'+t.icon+'</span>'
+      +'<div class="home-tile-label">'+t.label+'</div>'
+      +'<div class="home-tile-sub">'+t.sub+'</div>'
+      +'</div>';
+  }).join('');
+
   var pill=document.getElementById('role-pill');
-  var label=name||'';
-  if(role==='admin')pill.textContent=label+' · Administrador';
-  else if(role==='mkt')pill.textContent=label+' · MKT';
-  else pill.textContent=label+' · solo lectura';
+  if(role==='admin')pill.textContent=(user||'')+' · Administrador';
+  else if(role==='mkt')pill.textContent=(user||'')+' · MKT';
+  else pill.textContent=(user||'')+' · solo lectura';
+
+  document.getElementById('tab-logs').style.display=role==='admin'?'flex':'none';
 }
 
+function enterApp(tabName){
+  document.getElementById('home-screen').classList.remove('active');
+  document.getElementById('app').style.display='flex';
+  switchTab(tabName);
+}
+
+// Al tocar el logo, volver al menú de inicio
+function goHomeFromApp(){
+  document.getElementById('app').style.display='none';
+  goHome();
+}
+// sobreescribimos goHome usado por el logo para no perder sesión — usamos goHomeFromApp en el click del logo
+document.querySelector('.logo').setAttribute('onclick','goHomeFromApp()');
+
+// ── Restaurar sesión activa (recarga de página) ───────
 (function(){
   var saved=sessionStorage.getItem('panel_role');
-  var savedUser=sessionStorage.getItem('panel_user');
-  if(saved==='mkt'||saved==='visitor'||saved==='admin')startApp(saved,savedUser);
+  if(saved==='mkt'||saved==='visitor'||saved==='admin'){
+    goHome();
+  }
 })();
 
+// ── TABS (carga perezosa de iframes) ──────────────────
 function switchTab(name){
   document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active');});
   document.querySelectorAll('iframe').forEach(function(f){f.classList.remove('active');});
   document.getElementById('logs-page').classList.remove('active');
   document.getElementById('tab-'+name).classList.add('active');
+
   if(name==='logs'){
     document.getElementById('logs-page').classList.add('active');
     loadLogs();
   }else{
-    document.getElementById('frame-'+name).classList.add('active');
+    var frame=document.getElementById('frame-'+name);
+    if(!loadedFrames[name]){
+      frame.src=name+'.html';
+      loadedFrames[name]=true;
+    }
+    frame.classList.add('active');
   }
   var role=sessionStorage.getItem('panel_role');
   var user=sessionStorage.getItem('panel_user');
@@ -179,21 +283,10 @@ async function logActivity(role,user,action,detail){
     if(!r.ok)return;
     var rec=(await r.json()).record||{};
     var logs=rec.logs||[];
-    logs.push({
-      ts:new Date().toISOString(),
-      role:role||'—',
-      user:user||'—',
-      page:'index',
-      action:action,
-      detail:detail||''
-    });
+    logs.push({ts:new Date().toISOString(),role:role||'—',user:user||'—',page:'index',action:action,detail:detail||''});
     if(logs.length>300)logs=logs.slice(logs.length-300);
     rec.logs=logs;
-    await fetch('https://api.jsonbin.io/v3/b/'+CAMPANAS_BIN,{
-      method:'PUT',
-      headers:{'Content-Type':'application/json','X-Master-Key':API_KEY},
-      body:JSON.stringify(rec)
-    });
+    await fetch('https://api.jsonbin.io/v3/b/'+CAMPANAS_BIN,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':API_KEY},body:JSON.stringify(rec)});
   }catch(e){console.error('log error',e);}
 }
 
@@ -209,7 +302,7 @@ async function loadLogs(){
       +logs.map(function(l){
         var d=new Date(l.ts);
         var fecha=d.toLocaleDateString('es-AR')+' '+d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
-        var roleClass=l.role==='admin'?'mkt':l.role==='mkt'?'mkt':'visitor';
+        var roleClass=(l.role==='admin'||l.role==='mkt')?'mkt':'visitor';
         return '<tr><td style="color:#9a9286;font-size:11px">'+fecha+'</td>'
           +'<td>'+(l.user||'—')+'</td>'
           +'<td><span class="role-tag '+roleClass+'">'+(l.role||'—')+'</span></td>'
