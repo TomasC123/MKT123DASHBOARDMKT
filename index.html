@@ -512,7 +512,8 @@ async function generarInforme(){
       body:JSON.stringify({model:'claude-fable-5',max_tokens:3000,messages:[{role:'user',content:prompt}]})
     });
     var data=await resp.json();
-    var text=data.content&&data.content[0]?data.content[0].text:(data.error?('Error: '+(data.error.message||JSON.stringify(data.error))):'Sin respuesta de la IA.');
+    var textBlock=data.content&&data.content.find?data.content.find(function(b){return b.type==='text'&&b.text;}):null;
+    var text=textBlock?textBlock.text:(data.error?('Error: '+(data.error.message||JSON.stringify(data.error))):'Sin respuesta de la IA.');
 
     // ── PARSE SECTIONS ──
     var sections={};
