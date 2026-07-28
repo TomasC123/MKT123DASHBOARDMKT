@@ -628,8 +628,15 @@ async function generarInforme(){
 
     var role=sessionStorage.getItem('panel_role');
     var user=sessionStorage.getItem('panel_user');
-    logActivity(role,user,'ai_informe','Generó informe ejecutivo completo con Fable');
-    await saveInformeToHistory(window._lastInformeDoc,role,user);
+    // Importante: esperar cada escritura antes de la siguiente para no pisar datos (mismo archivo)
+    await logActivity(role,user,'ai_informe','Generó informe ejecutivo completo con Fable');
+    var saved=await saveInformeToHistory(window._lastInformeDoc,role,user);
+    if(!saved){
+      var warn=document.createElement('div');
+      warn.style.cssText='margin-top:8px;padding:8px 12px;background:#fdf0ef;border:1px solid #f5c0ba;border-radius:6px;font-size:11px;color:#c0392b';
+      warn.textContent='⚠ El informe se generó pero no se pudo guardar en el historial. Descargalo ahora por las dudas.';
+      body.insertBefore(warn, body.firstChild);
+    }
 
   }catch(e){
     body.innerHTML='<div class="informe-loading" style="color:#c0392b">Error al generar el informe: '+e.message+'</div>';
@@ -687,7 +694,7 @@ function exportInformePDF(docHtmlOverride,metaOverride){
 async function saveInformeToHistory(docHtml,role,user){
   try{
     var r=await fetch('https://api.jsonbin.io/v3/b/'+CAMPANAS_BIN+'/latest',{headers:{'X-Master-Key':API_KEY}});
-    if(!r.ok)return;
+    if(!r.ok){console.error('saveInformeToHistory: fetch latest failed',r.status);return false;}
     var rec=(await r.json()).record||{};
     var informes=rec.informes||[];
     informes.push({
@@ -697,11 +704,14 @@ async function saveInformeToHistory(docHtml,role,user){
       user:user||'—',
       docHtml:docHtml
     });
-    if(informes.length>15)informes=informes.slice(informes.length-15);
+    // Guardamos menos historial para no chocar con el límite de tamaño del bin gratuito
+    if(informes.length>8)informes=informes.slice(informes.length-8);
     rec.informes=informes;
-    await fetch('https://api.jsonbin.io/v3/b/'+CAMPANAS_BIN,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':API_KEY},body:JSON.stringify(rec)});
+    var w=await fetch('https://api.jsonbin.io/v3/b/'+CAMPANAS_BIN,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':API_KEY},body:JSON.stringify(rec)});
+    if(!w.ok){console.error('saveInformeToHistory: write failed',w.status);return false;}
     loadInformeHistory();
-  }catch(e){console.error('save informe error',e);}
+    return true;
+  }catch(e){console.error('save informe error',e);return false;}
 }
 
 async function loadInformeHistory(){
