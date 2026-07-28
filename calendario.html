@@ -731,10 +731,52 @@ function doExcel(){
   XLSX.writeFile(wb,'Calendario_'+MONTHS[S.month]+'_'+S.year+'.xlsx');
 }
 
+// ── AUTH (rol compartido con el panel) ────────────────
+var userRole=sessionStorage.getItem('panel_role')||null;
+var userName=sessionStorage.getItem('panel_user')||null;
+
+async function logActivity(action,detail){
+  try{
+    var r=await fetch('https://api.jsonbin.io/v3/b/6a0604f4adc21f119a9e13b5/latest',{headers:{'X-Master-Key':API_KEY}});
+    if(!r.ok)return;
+    var rec=(await r.json()).record||{};
+    var logs=rec.logs||[];
+    logs.push({ts:new Date().toISOString(),role:userRole||'—',user:userName||'—',page:'calendario',action:action,detail:detail||''});
+    if(logs.length>300)logs=logs.slice(logs.length-300);
+    rec.logs=logs;
+    await fetch('https://api.jsonbin.io/v3/b/6a0604f4adc21f119a9e13b5',{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':API_KEY},body:JSON.stringify(rec)});
+  }catch(e){console.error('log error',e);}
+}
+
+function applyVisitorRestrictions(){
+  if(userRole!=='visitor')return;
+  // Disable cell editing
+  var origOpenModal=openModal, origCellClick=cellClick, origBulkAssign=bulkAssign, origBulkClearDirect=bulkClearDirect;
+  openModal=function(){alert('Modo solo lectura. Iniciá sesión como MKT para editar.');};
+  cellClick=function(e,el){
+    if(bulkMode){var day=parseInt(el.dataset.day),pid=el.dataset.pid;var sk=selKey(day,pid);if(selectedCells.has(sk))selectedCells.delete(sk);else selectedCells.add(sk);renderView();}
+    else openModal();
+  };
+  bulkAssign=function(){alert('Modo solo lectura.');};
+  bulkClearDirect=function(){alert('Modo solo lectura.');};
+  ctxClear=function(e){e.preventDefault();};
+  syncSave=function(){return Promise.resolve();};
+  doSave=function(){alert('Modo solo lectura. No se pueden guardar cambios.');};
+  cfgAddProduct=function(){alert('Modo solo lectura.');};
+  cfgAddCampaign=function(){alert('Modo solo lectura.');};
+  removeProduct=function(){alert('Modo solo lectura.');};
+  removeCampaign=function(){alert('Modo solo lectura.');};
+  var style=document.createElement('style');
+  style.textContent='.btn-dark{opacity:.35!important;pointer-events:none!important}';
+  document.head.appendChild(style);
+}
+
 // INIT
+applyVisitorRestrictions();
 renderSidebar();
 renderView();
 syncLoad();
+logActivity('view','Abrió el calendario');
 </script>
 </body>
 </html>
