@@ -1558,7 +1558,8 @@ async function runAI(){
   try{
     var resp=await fetch('https://mkt-ai-proxy.tcoppede.workers.dev/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-5',max_tokens:1000,messages:[{role:'user',content:prompt}]})});
     var data=await resp.json();
-    var text=data.content&&data.content[0]?data.content[0].text:(data.error?('Error API: '+(data.error.message||JSON.stringify(data.error))):'Sin respuesta.');
+    var textBlock=data.content&&data.content.find?data.content.find(function(b){return b.type==='text'&&b.text;}):null;
+    var text=textBlock?textBlock.text:(data.error?('Error API: '+(data.error.message||JSON.stringify(data.error))):'Sin respuesta de la IA. Probá de nuevo.');
     el.innerHTML=text.split('\n\n').filter(function(s){return s.trim();}).map(function(s){
       var nl=s.indexOf('\n');var title=nl>-1?s.slice(0,nl):s;var body=nl>-1?s.slice(nl+1).trim():'';
       return '<div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--brd)">'
