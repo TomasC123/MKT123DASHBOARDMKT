@@ -132,6 +132,9 @@ iframe.active{display:block}
       <button class="tab" onclick="switchTab('campanas')" id="tab-campanas">
         <span class="tab-icon">◈</span> Campañas
       </button>
+      <button class="tab" onclick="switchTab('leads')" id="tab-leads">
+        <span class="tab-icon">◉</span> Leads
+      </button>
 
     </div>
     <div class="role-badge">
@@ -142,6 +145,7 @@ iframe.active{display:block}
   <div class="frame-wrap">
     <iframe id="frame-calendario"></iframe>
     <iframe id="frame-campanas"></iframe>
+    <iframe id="frame-leads"></iframe>
     <div class="logs-page" id="logs-page">
       <h1 class="logs-title">Logs de actividad</h1>
       <div style="display:flex;gap:8px;margin-bottom:16px">
@@ -246,7 +250,8 @@ function goHome(){
 
   var tiles=[
     {id:'calendario',icon:'◫',label:'Calendario',sub:'Planificación mensual'},
-    {id:'campanas',icon:'◈',label:'Campañas',sub:'Gestión y resultados'}
+    {id:'campanas',icon:'◈',label:'Campañas',sub:'Gestión y resultados'},
+    {id:'leads',icon:'◉',label:'Leads',sub:'En tiempo real'}
   ];
   if(role==='admin'){
     tiles.push({id:'logs',icon:'☰',label:'Logs',sub:'Actividad del equipo'});
