@@ -51,6 +51,29 @@ body{background:var(--bg);color:var(--txt);font-family:'Geist Mono',monospace;fo
 .chk.sec{margin-bottom:0;color:var(--mut)}
 .chk.sec:hover{color:var(--txt)}
 
+/* ── Alertas ── */
+.alerts{margin-bottom:22px}
+.alerts-toggle{display:flex;align-items:center;justify-content:space-between;width:100%;background:none;border:1px solid var(--desc);padding:11px 16px;cursor:pointer;font-family:'Geist Mono',monospace;color:var(--desc);font-size:11px;letter-spacing:.04em}
+.alerts-toggle:hover{background:rgba(217,136,128,.06)}
+.alerts-toggle .n{font-weight:500}
+.alerts-list{display:none;border:1px solid var(--line);border-top:none;background:var(--panel)}
+.alerts-list.open{display:block}
+.alert-item{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:12px 16px;border-top:1px solid rgba(255,255,255,.05)}
+.alert-item:first-child{border-top:none}
+.alert-main{flex:1;min-width:0}
+.alert-camp{font-size:12px;color:var(--txt);margin-bottom:4px}
+.alert-camp .area-tag{margin-right:6px}
+.alert-msgs{display:flex;flex-direction:column;gap:3px}
+.alert-msg{font-size:11px;color:var(--mut);display:flex;align-items:baseline;gap:6px}
+.sev-crit{color:var(--desc)}
+.sev-warn{color:var(--media)}
+.alert-goto{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.06em;color:var(--mut2);background:none;border:1px solid var(--line);padding:6px 12px;cursor:pointer;flex-shrink:0;white-space:nowrap;transition:all .15s}
+.alert-goto:hover{color:var(--txt);border-color:rgba(255,255,255,.28)}
+.alerts-empty{border:1px solid var(--line);background:var(--panel);padding:11px 16px;font-size:11px;color:var(--mut2)}
+.card.flagged{border-color:rgba(217,136,128,.4)}
+@keyframes flashCard{0%,100%{background:var(--panel)}50%{background:rgba(217,136,128,.1)}}
+.card.flash{animation:flashCard .6s ease 2}
+
 /* ── Comparador ── */
 .compare{display:none;border:1px solid var(--line);background:var(--panel);padding:18px 20px;margin-bottom:26px}
 .compare.open{display:block}
@@ -183,6 +206,8 @@ body{background:var(--bg);color:var(--txt);font-family:'Geist Mono',monospace;fo
       <button class="btn" id="btnRefresh" onclick="loadAll()">Actualizar</button>
     </div>
   </div>
+
+  <div class="alerts" id="alerts"></div>
 
   <div class="bar">
     <div class="chips">
@@ -324,6 +349,7 @@ async function loadAll(){
   const stamps = SOURCES.map(function(s){ return state.data[s.id] && state.data[s.id].ok ? state.data[s.id].payload.actualizado : null; }).filter(Boolean);
   document.getElementById('stamp').textContent = stamps.length ? 'Actualizado ' + fmtFecha(stamps.sort().pop()) : '';
   render();
+  renderAlerts();
   populateCompare();
   renderCompare();
 }
@@ -350,6 +376,112 @@ function visibleCampanas(){
   return allCampanas()
     .filter(function(c){ return state.filter==='todas' || state.filter===c._areaId; })
     .sort(function(a,b){ return lastDia(b.porDia).localeCompare(lastDia(a.porDia)); });
+}
+
+// ── Alertas automáticas (reglas simples, sin costo de IA) ──
+const ALERT_RULES = {
+  minLeadsParaAlertar: 5,     // no alertar campañas muy chicas (ruido)
+  diasSinActividad: 5,        // "sin actividad" si no hay leads en N días
+  caidaVolumenPct: 50,        // "caída" si últimos 7 días <= 50% de los 7 previos
+  diasSinAltaReciente: 7,     // ventana para buscar leads ALTA recientes
+  pctDescartarAlerta: 40      // "alto descarte" si supera este % del total
+};
+function slugKey(key){ return 'camp-'+key.replace(/[^a-zA-Z0-9]+/g,'-'); }
+function computeAlerts(){
+  const hoy = new Date();
+  const out = [];
+  allCampanas().forEach(function(c){
+    if (c.total < ALERT_RULES.minLeadsParaAlertar) return;
+    const msgs = [];
+    const serie = filledSeries(c.porDia);
+    const ult = lastDia(c.porDia);
+
+    // 1) Sin actividad reciente
+    if (ult){
+      const diasDesde = Math.floor((hoy - new Date(ult+'T00:00:00')) / 86400000);
+      if (diasDesde >= ALERT_RULES.diasSinActividad){
+        msgs.push({ sev:'warn', text:'Sin nuevos leads hace '+diasDesde+' días' });
+      }
+    }
+
+    // 2) Caída de volumen (últimos 7 días vs 7 anteriores)
+    if (serie.length >= 10){
+      const ultimos7 = serie.slice(-7).reduce(function(s,d){return s+d.count;},0);
+      const previos7 = serie.slice(-14,-7).reduce(function(s,d){return s+d.count;},0);
+      if (previos7 >= 3 && ultimos7 <= previos7 * (ALERT_RULES.caidaVolumenPct/100)){
+        const pct = Math.round((1 - ultimos7/previos7) * 100);
+        msgs.push({ sev:'crit', text:'Cayó '+pct+'% el volumen (últimos 7 días vs. semana anterior)' });
+      }
+    }
+
+    // 3) Sin leads ALTA recientes
+    const leads = c.ultimosLeads || [];
+    const recientes = leads.filter(function(l){
+      if (!l.fecha) return false;
+      const dias = Math.floor((hoy - new Date(l.fecha)) / 86400000);
+      return dias <= ALERT_RULES.diasSinAltaReciente;
+    });
+    if (recientes.length >= 2 && !recientes.some(function(l){ return l.prioridad==='ALTA'; })){
+      msgs.push({ sev:'warn', text:'Ningún lead ALTA en los últimos '+ALERT_RULES.diasSinAltaReciente+' días ('+recientes.length+' leads revisados)' });
+    }
+
+    // 4) Alto % de Descartar
+    const p = c.porPrioridad||{};
+    const pctDesc = c.total ? Math.round((p.DESCARTAR||0)/c.total*100) : 0;
+    if (pctDesc >= ALERT_RULES.pctDescartarAlerta){
+      msgs.push({ sev:'crit', text: pctDesc+'% de los leads terminaron en Descartar' });
+    }
+
+    if (msgs.length) out.push({ campana:c, msgs:msgs });
+  });
+  // Más críticas primero
+  out.sort(function(a,b){
+    const critA = a.msgs.filter(function(m){return m.sev==='crit';}).length;
+    const critB = b.msgs.filter(function(m){return m.sev==='crit';}).length;
+    return critB - critA;
+  });
+  return out;
+}
+function goToCard(key){
+  const el = document.getElementById(slugKey(key));
+  if (!el) return;
+  el.scrollIntoView({ behavior:'smooth', block:'center' });
+  el.classList.add('flash');
+  setTimeout(function(){ el.classList.remove('flash'); }, 1300);
+}
+function toggleAlertsList(){
+  const list = document.getElementById('alerts-list');
+  const btn = document.getElementById('alerts-toggle-btn');
+  list.classList.toggle('open');
+  btn.querySelector('.chev').textContent = list.classList.contains('open') ? '▲' : '▼';
+}
+function renderAlerts(){
+  const box = document.getElementById('alerts');
+  const items = computeAlerts();
+  if (!items.length){
+    box.innerHTML = '<div class="alerts-empty">✓ Sin alertas activas — todas las campañas dentro de parámetros normales.</div>';
+    return;
+  }
+  const totalMsgs = items.reduce(function(s,i){return s+i.msgs.length;},0);
+  box.innerHTML =
+    '<button class="alerts-toggle" id="alerts-toggle-btn" onclick="toggleAlertsList()">'+
+      '<span>⚠ '+items.length+' campaña'+(items.length>1?'s':'')+' con alertas <span class="n">('+totalMsgs+')</span></span>'+
+      '<span class="chev">▼</span>'+
+    '</button>'+
+    '<div class="alerts-list" id="alerts-list">'+
+      items.map(function(it){
+        const c = it.campana;
+        return '<div class="alert-item">'+
+          '<div class="alert-main">'+
+            '<div class="alert-camp"><span class="area-tag">'+esc(c._area)+'</span>'+esc(c.producto)+'</div>'+
+            '<div class="alert-msgs">'+it.msgs.map(function(m){
+              return '<div class="alert-msg sev-'+m.sev+'">'+(m.sev==='crit'?'●':'○')+' '+esc(m.text)+'</div>';
+            }).join('')+'</div>'+
+          '</div>'+
+          '<button class="alert-goto" onclick="goToCard(\''+esc(campKey(c))+'\')">Ver campaña →</button>'+
+        '</div>';
+      }).join('')+
+    '</div>';
 }
 
 function render(){
@@ -421,7 +553,7 @@ function cardHTML(c){
 
   const key = campKey(c);
   const checked = state.selected.has(key) ? ' checked' : '';
-  return '<div class="card">'+
+  return '<div class="card" id="'+esc(slugKey(key))+'">'+
     '<div class="card-top">'+
       '<div class="card-check">'+
         '<label class="chk"><input type="checkbox" data-key="'+esc(key)+'"'+checked+' onchange="toggleSelect(this)"><span>Incluir en informe</span></label>'+
