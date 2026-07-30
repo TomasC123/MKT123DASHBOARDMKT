@@ -51,6 +51,26 @@ body{background:var(--bg);color:var(--txt);font-family:'Geist Mono',monospace;fo
 .chk.sec{margin-bottom:0;color:var(--mut)}
 .chk.sec:hover{color:var(--txt)}
 
+/* ── Comparador ── */
+.compare{display:none;border:1px solid var(--line);background:var(--panel);padding:18px 20px;margin-bottom:26px}
+.compare.open{display:block}
+.compare-selects{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.compare-selects label{flex:1;min-width:240px;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut2)}
+.compare-selects select{display:block;width:100%;margin-top:6px;background:#171512;color:var(--txt);border:1px solid var(--line);font-family:'Geist Mono',monospace;font-size:11px;padding:8px 10px}
+.compare > .btn{margin-bottom:16px}
+.cmp-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+.cmp-side{border:1px solid var(--line);padding:12px 14px}
+.cmp-name{font-family:'Instrument Serif',Georgia,serif;font-style:italic;font-size:15px;margin-bottom:2px}
+.cmp-sub{font-size:9px;color:var(--mut2);letter-spacing:.06em;margin-bottom:10px}
+.cmp-metrics{display:flex;flex-wrap:wrap;gap:12px;font-size:10px;color:var(--mut)}
+.cmp-metrics b{display:block;color:var(--txt);font-size:14px;font-weight:500;margin-top:2px}
+.cmp-a-mark{display:inline-block;width:14px;height:3px;background:rgba(247,245,240,.9);margin-right:7px;vertical-align:3px}
+.cmp-b-mark{display:inline-block;width:14px;height:3px;background:var(--media);margin-right:7px;vertical-align:3px}
+.cmp-chart{height:110px;margin-top:4px}
+.cmp-chart svg{width:100%;height:100%;display:block}
+.cmp-axis{display:flex;justify-content:space-between;font-size:9px;color:var(--mut2);letter-spacing:.08em;text-transform:uppercase;margin-top:6px}
+.compare .hint{font-size:11px;color:var(--mut2);text-align:center;padding:14px 0}
+
 /* ── Cards ── */
 .grid{display:flex;flex-direction:column;gap:14px}
 .card{border:1px solid var(--line);background:var(--panel);padding:18px 20px}
@@ -181,19 +201,16 @@ body{background:var(--bg);color:var(--txt);font-family:'Geist Mono',monospace;fo
   </div>
 
   <div class="compare" id="compare">
-    <div class="compare-head">
-      <div class="compare-title">Comparar campañas</div>
-      <button class="compare-close" onclick="toggleCompare()">✕ Cerrar</button>
-    </div>
     <div class="compare-selects">
       <label>Campaña A
-        <select id="selA" onchange="renderCompare()"></select>
+        <select id="selA"></select>
       </label>
       <label>Campaña B
-        <select id="selB" onchange="renderCompare()"></select>
+        <select id="selB"></select>
       </label>
     </div>
-    <div id="cmp-body"><div class="hint">Elegí dos campañas para compararlas.</div></div>
+    <button class="btn" onclick="renderCompare()">Comparar</button>
+    <div id="cmp-body"><div class="hint">Elegí dos campañas y tocá "Comparar".</div></div>
   </div>
 
   <div class="grid" id="grid">
