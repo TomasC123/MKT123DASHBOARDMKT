@@ -46,6 +46,11 @@ body{background:var(--bg);color:var(--txt);font-family:'Geist Mono',monospace;fo
 .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px}
 .d-alta{background:var(--alta)}.d-media{background:var(--media)}.d-baja{background:var(--baja)}.d-desc{background:var(--desc)}
 
+.secbar{display:flex;align-items:center;gap:18px;flex-wrap:wrap;font-size:10px;color:var(--mut2);margin:-14px 0 26px;padding-bottom:2px}
+.secbar-label{letter-spacing:.08em;text-transform:uppercase;font-size:9px}
+.chk.sec{margin-bottom:0;color:var(--mut)}
+.chk.sec:hover{color:var(--txt)}
+
 /* ── Comparador ── */
 .compare{display:none;border:1px solid var(--line);background:var(--panel);padding:18px 20px;margin-bottom:26px}
 .compare.open{display:block}
@@ -73,6 +78,9 @@ body{background:var(--bg);color:var(--txt);font-family:'Geist Mono',monospace;fo
 .grid{display:flex;flex-direction:column;gap:14px}
 .card{border:1px solid var(--line);background:var(--panel);padding:18px 20px}
 .card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.card-check{flex:1}
+.chk{display:flex;align-items:center;gap:7px;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut2);margin-bottom:8px;cursor:pointer;user-select:none}
+.chk input{accent-color:var(--txt);width:13px;height:13px;cursor:pointer}
 .card-title{font-family:'Instrument Serif',Georgia,serif;font-style:italic;font-size:19px;line-height:1.25}
 .card-meta{font-size:10px;color:var(--mut2);margin-top:5px;letter-spacing:.04em}
 .area-tag{display:inline-block;font-size:9px;letter-spacing:.14em;text-transform:uppercase;border:1px solid var(--line);padding:3px 8px;margin-right:8px;color:var(--mut);vertical-align:2px}
@@ -139,7 +147,7 @@ body{background:var(--bg);color:var(--txt);font-family:'Geist Mono',monospace;fo
 #print-area th{background:#f2efe9;font-weight:500;font-size:9px;letter-spacing:.06em;text-transform:uppercase}
 #print-area .pnum{text-align:right}
 #print-area .pctx{font-size:9px;color:#555;line-height:1.5}
-#print-area .firma{margin-top:26px;padding-top:10px;border-top:1px solid #999;font-size:9px;color:#666}
+#print-area .firma{margin-top:30px;padding:10px 12px;border:1px solid #999;font-size:10px;color:#333;background:#f7f5f0}
 #print-area .pbreak{page-break-before:always}
 @media print{
   body{background:#fff!important;color:#111!important}
@@ -167,7 +175,7 @@ body{background:var(--bg);color:var(--txt);font-family:'Geist Mono',monospace;fo
     </div>
     <div class="head-right">
       <div class="stamp" id="stamp">—</div>
-      <button class="btn" onclick="informeGeneral()">↓ Informe PDF</button>
+      <button class="btn" id="btnInforme" onclick="informeGeneral()">↓ Informe PDF</button>
       <button class="btn" onclick="exportExcel()">↓ Excel</button>
       <button class="btn" id="btnRefresh" onclick="loadAll()">Actualizar</button>
     </div>
@@ -179,8 +187,17 @@ body{background:var(--bg);color:var(--txt);font-family:'Geist Mono',monospace;fo
       <button class="chip" data-f="ing" onclick="setFilter('ing',this)">Ingeniería</button>
       <button class="chip" data-f="agro" onclick="setFilter('agro',this)">AGRO</button>
       <button class="chip cmp" id="chipCmp" onclick="toggleCompare()">⇄ Comparar campañas</button>
+      <button class="chip" onclick="selectAll(true)">Marcar todas</button>
+      <button class="chip" onclick="selectAll(false)">Desmarcar</button>
     </div>
     <div class="totals" id="totals"></div>
+  </div>
+
+  <div class="secbar">
+    <span class="secbar-label">Incluir en descargas (PDF / Excel):</span>
+    <label class="chk sec"><input type="checkbox" id="secResumen" checked onchange="updateSections()"><span>Resumen y métricas</span></label>
+    <label class="chk sec"><input type="checkbox" id="secDias" checked onchange="updateSections()"><span>Día a día</span></label>
+    <label class="chk sec"><input type="checkbox" id="secLeads" checked onchange="updateSections()"><span>Detalle de leads (nombres)</span></label>
   </div>
 
   <div class="compare" id="compare">
@@ -212,7 +229,12 @@ const SOURCES = [
   { id:'ing',  label:'Ingeniería', url:'https://script.google.com/macros/s/AKfycbzU2GRxL87N47Jf0QMMBXy_2xZe98DBP-vbZSYnvXtE92c-4mqX8jveI-jxrogRPolS6g/exec?key=geo2026panel' },
   { id:'agro', label:'AGRO',       url:'https://script.google.com/macros/s/AKfycbyMoVCD8aapFbR4kCgC_G-fQjU5Aye9rR7LZbxPraecsHqGzK02A5n2kdUCqylZcSBw/exec?key=geo2026panel' }
 ];
-const state = { data:{}, filter:'todas' };
+const state = { data:{}, filter:'todas', selected:new Set(), sections:{resumen:true, dias:true, leads:true} };
+function updateSections(){
+  state.sections.resumen = document.getElementById('secResumen').checked;
+  state.sections.dias = document.getElementById('secDias').checked;
+  state.sections.leads = document.getElementById('secLeads').checked;
+}
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
 function fmtFecha(iso){
@@ -357,6 +379,30 @@ function render(){
   grid.innerHTML = html;
 }
 
+function toggleSelect(input){
+  const key = input.dataset.key;
+  if (input.checked) state.selected.add(key); else state.selected.delete(key);
+  updateInformeBtn();
+}
+function selectAll(on){
+  const camps = visibleCampanas();
+  if (on) camps.forEach(function(c){ state.selected.add(campKey(c)); });
+  else camps.forEach(function(c){ state.selected.delete(campKey(c)); });
+  document.querySelectorAll('.chk input[type="checkbox"]').forEach(function(inp){
+    inp.checked = state.selected.has(inp.dataset.key);
+  });
+  updateInformeBtn();
+}
+function updateInformeBtn(){
+  const n = state.selected.size;
+  document.getElementById('btnInforme').textContent = n ? '↓ Informe PDF ('+n+')' : '↓ Informe PDF';
+}
+function selectedOrVisible(){
+  const camps = visibleCampanas();
+  if (!state.selected.size) return camps;
+  return camps.filter(function(c){ return state.selected.has(campKey(c)); });
+}
+
 function tgl(btn, openLabel, closedLabel){
   const box = btn.nextElementSibling;
   box.classList.toggle('open');
@@ -370,9 +416,12 @@ function cardHTML(c){
   const ult = lastDia(c.porDia);
   const leads = c.ultimosLeads || [];
 
+  const key = campKey(c);
+  const checked = state.selected.has(key) ? ' checked' : '';
   return '<div class="card">'+
     '<div class="card-top">'+
-      '<div>'+
+      '<div class="card-check">'+
+        '<label class="chk"><input type="checkbox" data-key="'+esc(key)+'"'+checked+' onchange="toggleSelect(this)"><span>Incluir en informe</span></label>'+
         '<div class="card-title">'+esc(c.producto)+'</div>'+
         '<div class="card-meta"><span class="area-tag">'+esc(c._area)+'</span>'+esc(c.hoja)+
           (ult ? ' · último lead '+fmtDia(ult) : '')+'</div>'+
@@ -521,37 +570,46 @@ function renderCompare(){
 /* ── Excel ──────────────────────────────────────────── */
 function exportExcel(){
   if (typeof XLSX === 'undefined'){ alert('No se pudo cargar la librería de Excel. Revisá la conexión.'); return; }
-  const camps = visibleCampanas();
+  const camps = selectedOrVisible();
   if (!camps.length){ alert('No hay datos para exportar.'); return; }
+  if (!state.sections.resumen && !state.sections.dias && !state.sections.leads){
+    alert('Elegí al menos una sección para descargar (Resumen, Día a día o Detalle de leads).'); return;
+  }
   const wb = XLSX.utils.book_new();
 
-  const resumen = [['Área','Producto','Hoja','Total','ALTA','MEDIA','BAJA','DESCARTAR','Primer día','Último día']];
-  camps.forEach(function(c){
-    const keys = Object.keys(c.porDia||{}).sort();
-    const p = c.porPrioridad||{};
-    resumen.push([c._area, c.producto, c.hoja, c.total, p.ALTA||0, p.MEDIA||0, p.BAJA||0, p.DESCARTAR||0, keys[0]||'', keys[keys.length-1]||'']);
-  });
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumen), 'Resumen');
-
-  const diario = [['Fecha','Área','Producto','Hoja','Leads','Variación','Variación %']];
-  camps.forEach(function(c){
-    const serie = filledSeries(c.porDia);
-    serie.forEach(function(s,i){
-      const ayer = i>0 ? serie[i-1].count : null;
-      const d = ayer===null ? '' : s.count-ayer;
-      const pct = (ayer===null||ayer===0) ? '' : Math.round((s.count-ayer)/ayer*100)+'%';
-      diario.push([s.fecha, c._area, c.producto, c.hoja, s.count, d, pct]);
+  if (state.sections.resumen){
+    const resumen = [['Área','Producto','Hoja','Total','ALTA','MEDIA','BAJA','DESCARTAR','Primer día','Último día']];
+    camps.forEach(function(c){
+      const keys = Object.keys(c.porDia||{}).sort();
+      const p = c.porPrioridad||{};
+      resumen.push([c._area, c.producto, c.hoja, c.total, p.ALTA||0, p.MEDIA||0, p.BAJA||0, p.DESCARTAR||0, keys[0]||'', keys[keys.length-1]||'']);
     });
-  });
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(diario), 'Día a día');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumen), 'Resumen');
+  }
 
-  const hl = [['Fecha','Área','Producto','Nombre','Empresa','Cargo/Rol','Ciudad','Prioridad','Valoración','Contexto IA']];
-  camps.forEach(function(c){
-    (c.ultimosLeads||[]).forEach(function(l){
-      hl.push([l.fecha||'', c._area, c.producto, l.nombre||'', l.empresa||'', l.cargo||l.rol||'', l.ciudad||l.ubicacion||'', l.prioridad||'', l.valoracion||'', l.contexto||'']);
+  if (state.sections.dias){
+    const diario = [['Fecha','Área','Producto','Hoja','Leads','Variación','Variación %']];
+    camps.forEach(function(c){
+      const serie = filledSeries(c.porDia);
+      serie.forEach(function(s,i){
+        const ayer = i>0 ? serie[i-1].count : null;
+        const d = ayer===null ? '' : s.count-ayer;
+        const pct = (ayer===null||ayer===0) ? '' : Math.round((s.count-ayer)/ayer*100)+'%';
+        diario.push([s.fecha, c._area, c.producto, c.hoja, s.count, d, pct]);
+      });
     });
-  });
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(hl), 'Últimos leads');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(diario), 'Día a día');
+  }
+
+  if (state.sections.leads){
+    const hl = [['Fecha','Área','Producto','Nombre','Empresa','Cargo/Rol','Ciudad','Prioridad','Valoración','Contexto IA']];
+    camps.forEach(function(c){
+      (c.ultimosLeads||[]).forEach(function(l){
+        hl.push([l.fecha||'', c._area, c.producto, l.nombre||'', l.empresa||'', l.cargo||l.rol||'', l.ciudad||l.ubicacion||'', l.prioridad||'', l.valoracion||'', l.contexto||'']);
+      });
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(hl), 'Últimos leads');
+  }
 
   const hoy = new Date().toISOString().slice(0,10);
   XLSX.writeFile(wb, 'leads_'+hoy+'.xlsx');
@@ -609,22 +667,21 @@ function leadsTablePrint(c){
     }).join('')+'</tbody></table>';
 }
 function seccionCampana(c){
-  return '<h2>'+esc(c.producto)+' <span style="font-size:10px;color:#777">('+esc(c._area)+' · '+esc(c.hoja)+')</span></h2>'+
-    metricasTable(c)+
-    '<h2 style="font-size:13px">Día a día</h2>'+diaTablePrint(c)+
-    leadsTablePrint(c);
+  let out = '<h2>'+esc(c.producto)+' <span style="font-size:10px;color:#777">('+esc(c._area)+' · '+esc(c.hoja)+')</span></h2>';
+  if (state.sections.resumen) out += metricasTable(c);
+  if (state.sections.dias) out += '<h2 style="font-size:13px">Día a día</h2>'+diaTablePrint(c);
+  if (state.sections.leads) out += leadsTablePrint(c);
+  return out;
 }
 function informeCampanaBtn(btn){
   const c = findCamp(btn.dataset.key);
   if (!c) return;
-  doPrint(
-    '<h1>Informe de campaña — '+esc(c.producto)+'</h1>'+
-    '<div class="psub">'+esc(c._area)+' · '+esc(c.hoja)+'</div>'+
-    metricasTable(c)+
-    '<h2>Día a día</h2>'+diaTablePrint(c)+
-    leadsTablePrint(c)+
-    firmaHTML()
-  );
+  let body = '<h1>Informe de campaña — '+esc(c.producto)+'</h1>'+
+    '<div class="psub">'+esc(c._area)+' · '+esc(c.hoja)+'</div>';
+  if (state.sections.resumen) body += metricasTable(c);
+  if (state.sections.dias) body += '<h2>Día a día</h2>'+diaTablePrint(c);
+  if (state.sections.leads) body += leadsTablePrint(c);
+  doPrint(body + firmaHTML());
 }
 function informeComparativa(){
   const a = findCamp(document.getElementById('selA').value);
@@ -640,10 +697,10 @@ function informeComparativa(){
     filas += '<tr><td>Día '+(i+1)+'</td><td class="pnum">'+vA+'</td><td class="pnum">'+vB+'</td></tr>';
   }
   function row(nom, va, vb){ return '<tr><td>'+nom+'</td><td class="pnum">'+va+'</td><td class="pnum">'+vb+'</td></tr>'; }
-  doPrint(
-    '<h1>Informe comparativo de campañas</h1>'+
-    '<div class="psub">A: '+esc(a.producto)+' ('+esc(a._area)+') &nbsp;·&nbsp; B: '+esc(b.producto)+' ('+esc(b._area)+')</div>'+
-    '<table><thead><tr><th>Métrica</th><th class="pnum">A — '+esc(a.producto)+'</th><th class="pnum">B — '+esc(b.producto)+'</th></tr></thead><tbody>'+
+  let body = '<h1>Informe comparativo de campañas</h1>'+
+    '<div class="psub">A: '+esc(a.producto)+' ('+esc(a._area)+') &nbsp;·&nbsp; B: '+esc(b.producto)+' ('+esc(b._area)+')</div>';
+  if (state.sections.resumen){
+    body += '<table><thead><tr><th>Métrica</th><th class="pnum">A — '+esc(a.producto)+'</th><th class="pnum">B — '+esc(b.producto)+'</th></tr></thead><tbody>'+
       row('Total de leads', a.total, b.total)+
       row('Alta', (pA.ALTA||0)+' ('+stA.pctAlta+'%)', (pB.ALTA||0)+' ('+stB.pctAlta+'%)')+
       row('Media', pA.MEDIA||0, pB.MEDIA||0)+
@@ -653,43 +710,50 @@ function informeComparativa(){
       row('Mejor día', stA.best.count+' ('+fmtDiaFull(stA.best.fecha)+')', stB.best.count+' ('+fmtDiaFull(stB.best.fecha)+')')+
       row('Duración', stA.dur+' días', stB.dur+' días')+
       row('Período', fmtDiaFull(stA.first)+' – '+fmtDiaFull(stA.last), fmtDiaFull(stB.first)+' – '+fmtDiaFull(stB.last))+
-    '</tbody></table>'+
-    '<h2>Leads por día de campaña (día 1 = inicio de cada una)</h2>'+
-    '<table><thead><tr><th>Día de campaña</th><th class="pnum">A — '+esc(a.producto)+'</th><th class="pnum">B — '+esc(b.producto)+'</th></tr></thead><tbody>'+filas+'</tbody></table>'+
-    firmaHTML()
-  );
+    '</tbody></table>';
+  }
+  if (state.sections.dias){
+    body += '<h2>Leads por día de campaña (día 1 = inicio de cada una)</h2>'+
+    '<table><thead><tr><th>Día de campaña</th><th class="pnum">A — '+esc(a.producto)+'</th><th class="pnum">B — '+esc(b.producto)+'</th></tr></thead><tbody>'+filas+'</tbody></table>';
+  }
+  doPrint(body + firmaHTML());
 }
 function informeGeneral(){
-  const camps = visibleCampanas();
+  const camps = selectedOrVisible();
   if (!camps.length){ alert('No hay datos para el informe.'); return; }
-  const nombreFiltro = state.filter==='todas' ? 'Todas las áreas' : (state.filter==='ing' ? 'Ingeniería' : 'AGRO');
+  if (!state.sections.resumen && !state.sections.dias && !state.sections.leads){
+    alert('Elegí al menos una sección para el informe (Resumen, Día a día o Detalle de leads).'); return;
+  }
+  const nombreFiltro = state.selected.size
+    ? camps.length+' campaña'+(camps.length>1?'s':'')+' seleccionada'+(camps.length>1?'s':'')
+    : (state.filter==='todas' ? 'Todas las áreas' : (state.filter==='ing' ? 'Ingeniería' : 'AGRO'));
   const t = { total:0, ALTA:0, MEDIA:0, BAJA:0, DESCARTAR:0 };
   camps.forEach(function(c){
     t.total += c.total;
     ['ALTA','MEDIA','BAJA','DESCARTAR'].forEach(function(k){ t[k] += (c.porPrioridad && c.porPrioridad[k])||0; });
   });
-  let resumen = '<table><thead><tr><th>Área</th><th>Producto</th><th>Hoja</th><th class="pnum">Total</th><th class="pnum">Alta</th><th class="pnum">Media</th><th class="pnum">Baja</th><th class="pnum">Desc.</th><th class="pnum">% Alta</th><th>Período</th></tr></thead><tbody>';
-  camps.forEach(function(c){
-    const st = campStats(c);
-    const p = c.porPrioridad||{};
-    resumen += '<tr><td>'+esc(c._area)+'</td><td>'+esc(c.producto)+'</td><td>'+esc(c.hoja)+'</td>'+
-      '<td class="pnum">'+c.total+'</td><td class="pnum">'+(p.ALTA||0)+'</td><td class="pnum">'+(p.MEDIA||0)+'</td><td class="pnum">'+(p.BAJA||0)+'</td><td class="pnum">'+(p.DESCARTAR||0)+'</td>'+
-      '<td class="pnum">'+st.pctAlta+'%</td><td>'+fmtDiaFull(st.first)+' – '+fmtDiaFull(st.last)+'</td></tr>';
-  });
-  resumen += '<tr><td colspan="3"><b>TOTAL</b></td><td class="pnum"><b>'+t.total+'</b></td><td class="pnum"><b>'+t.ALTA+'</b></td><td class="pnum"><b>'+t.MEDIA+'</b></td><td class="pnum"><b>'+t.BAJA+'</b></td><td class="pnum"><b>'+t.DESCARTAR+'</b></td><td class="pnum"></td><td></td></tr></tbody></table>';
+  let resumen = '';
+  if (state.sections.resumen){
+    resumen = '<table><thead><tr><th>Área</th><th>Producto</th><th>Hoja</th><th class="pnum">Total</th><th class="pnum">Alta</th><th class="pnum">Media</th><th class="pnum">Baja</th><th class="pnum">Desc.</th><th class="pnum">% Alta</th><th>Período</th></tr></thead><tbody>';
+    camps.forEach(function(c){
+      const st = campStats(c);
+      const p = c.porPrioridad||{};
+      resumen += '<tr><td>'+esc(c._area)+'</td><td>'+esc(c.producto)+'</td><td>'+esc(c.hoja)+'</td>'+
+        '<td class="pnum">'+c.total+'</td><td class="pnum">'+(p.ALTA||0)+'</td><td class="pnum">'+(p.MEDIA||0)+'</td><td class="pnum">'+(p.BAJA||0)+'</td><td class="pnum">'+(p.DESCARTAR||0)+'</td>'+
+        '<td class="pnum">'+st.pctAlta+'%</td><td>'+fmtDiaFull(st.first)+' – '+fmtDiaFull(st.last)+'</td></tr>';
+    });
+    resumen += '<tr><td colspan="3"><b>TOTAL</b></td><td class="pnum"><b>'+t.total+'</b></td><td class="pnum"><b>'+t.ALTA+'</b></td><td class="pnum"><b>'+t.MEDIA+'</b></td><td class="pnum"><b>'+t.BAJA+'</b></td><td class="pnum"><b>'+t.DESCARTAR+'</b></td><td class="pnum"></td><td></td></tr></tbody></table>';
+  }
 
   const secciones = camps.map(function(c,i){
     return '<div'+(i>0?' class="pbreak"':'')+'>'+seccionCampana(c)+'</div>';
   }).join('');
 
-  doPrint(
-    '<h1>Informe de leads en tiempo real</h1>'+
-    '<div class="psub">'+nombreFiltro+' · '+camps.length+' campañas · '+t.total+' leads</div>'+
-    '<h2>Resumen general</h2>'+resumen+
-    '<div class="pbreak"></div><h2 style="font-size:18px">Detalle por campaña</h2>'+
-    secciones+
-    firmaHTML()
-  );
+  let body = '<h1>Informe de leads en tiempo real</h1>'+
+    '<div class="psub">'+nombreFiltro+' · '+camps.length+' campañas · '+t.total+' leads</div>';
+  if (resumen) body += '<h2>Resumen general</h2>'+resumen;
+  if (secciones.trim()) body += '<div class="pbreak"></div><h2 style="font-size:18px">Detalle por campaña</h2>'+secciones;
+  doPrint(body + firmaHTML());
 }
 
 loadAll();
