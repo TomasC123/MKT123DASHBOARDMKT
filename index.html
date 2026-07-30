@@ -255,7 +255,9 @@ function goHome(){
   ];
   if(role==='admin'){
     tiles.push({id:'logs',icon:'☰',label:'Logs',sub:'Actividad del equipo'});
-    tiles.push({id:'informe',icon:'✦',label:'Informe IA',sub:'Análisis ejecutivo completo'});
+    tiles.push({id:'informe',icon:'✦',label:'Informe IA',sub:'Análisis ejecutivo completo (Fable)'});
+  } else {
+    tiles.push({id:'informe',icon:'✦',label:'Análisis IA',sub:'Resumen ejecutivo del panel'});
   }
 
   document.getElementById('home-tiles').innerHTML=tiles.map(function(t){
@@ -420,7 +422,7 @@ async function generarInforme(){
   var intro=document.getElementById('informe-intro');
   var body=document.getElementById('informe-body');
   intro.style.display='none';
-  body.innerHTML='<div class="informe-loading">✦ Reuniendo datos de campañas, mailings, ventas y logs...<br><span style="font-size:11px">Esto puede tardar unos segundos</span></div>';
+  body.innerHTML='<div class="informe-loading">✦ Reuniendo datos de campañas, mailings, ventas y leads...<br><span style="font-size:11px">Esto puede tardar unos segundos</span></div>';
 
   try{
     var r1=await fetch('https://api.jsonbin.io/v3/b/'+CAMPANAS_BIN+'/latest',{headers:{'X-Master-Key':API_KEY}});
@@ -483,14 +485,6 @@ async function generarInforme(){
     });
     var roiTotal=totInvVinculada?Math.round((totFactura-totInvVinculada)/totInvVinculada*100):null;
 
-    // ── LOGS / ACTIVIDAD ──
-    var byUser={};
-    logs.forEach(function(l){
-      var u=l.user||'—';
-      if(!byUser[u])byUser[u]=0;
-      byUser[u]++;
-    });
-
     // ── PRESUPUESTO PLANIFICADO (calendario) ──
     var r2=await fetch('https://api.jsonbin.io/v3/b/'+CAL_BIN+'/latest',{headers:{'X-Master-Key':API_KEY}});
     var rec2=(await r2.json()).record||{};
@@ -501,6 +495,36 @@ async function generarInforme(){
       Object.keys(cells).forEach(function(){totalPlanificado++;});
     });
 
+    // ── LEADS (Ingeniería + AGRO, calificados por IA) ──
+    var LEADS_SOURCES=[
+      {id:'ing',label:'Ingeniería',url:'https://script.google.com/macros/s/AKfycbzU2GRxL87N47Jf0QMMBXy_2xZe98DBP-vbZSYnvXtE92c-4mqX8jveI-jxrogRPolS6g/exec?key=geo2026panel'},
+      {id:'agro',label:'AGRO',url:'https://script.google.com/macros/s/AKfycbyMoVCD8aapFbR4kCgC_G-fQjU5Aye9rR7LZbxPraecsHqGzK02A5n2kdUCqylZcSBw/exec?key=geo2026panel'}
+    ];
+    var leadsResults=await Promise.allSettled(LEADS_SOURCES.map(function(s){return fetch(s.url).then(function(r){return r.json();});}));
+    var leadsPorArea={},leadsPorPrioridad={ALTA:0,MEDIA:0,BAJA:0,DESCARTAR:0},leadsTotal=0,leadsTopCampanas=[];
+    LEADS_SOURCES.forEach(function(s,i){
+      var res=leadsResults[i];
+      if(res.status!=='fulfilled'||!res.value||!Array.isArray(res.value.campanas))return;
+      var camps=res.value.campanas.filter(function(c){return c.total>0;});
+      var areaTot=0,areaAlta=0;
+      camps.forEach(function(c){
+        leadsTotal+=c.total;areaTot+=c.total;
+        var p=c.porPrioridad||{};
+        ['ALTA','MEDIA','BAJA','DESCARTAR'].forEach(function(k){leadsPorPrioridad[k]+=p[k]||0;});
+        areaAlta+=p.ALTA||0;
+        leadsTopCampanas.push({area:s.label,producto:c.producto,total:c.total,alta:p.ALTA||0});
+      });
+      leadsPorArea[s.label]={total:areaTot,alta:areaAlta,pctAlta:areaTot?Math.round(areaAlta/areaTot*100):0};
+    });
+    leadsTopCampanas.sort(function(a,b){return b.total-a.total;});
+    var leadsSummary={
+      totalLeads:leadsTotal,
+      porPrioridad:leadsPorPrioridad,
+      pctAltaGeneral:leadsTotal?Math.round(leadsPorPrioridad.ALTA/leadsTotal*100):null,
+      porArea:leadsPorArea,
+      topCampanas:leadsTopCampanas.slice(0,8)
+    };
+
     // ── BUILD PROMPT FOR FABLE ──
     var mkeys=Object.keys(byMonth).sort();
     var summaryData={
@@ -510,25 +534,29 @@ async function generarInforme(){
       canceladas:canceladas.map(function(c){return {codigo:c.codigo,categoria:c.cancelCategoria,motivo:c.motivoCancelacion};}),
       mailing:{totalEnviados:totEnv,aperturaPct:avgApertura,ctrPct:avgCTR,costo:totMailCost,cantidad:mailings.length},
       ventas:{totalFacturado:totFactura,inversionVinculada:totInvVinculada,roiPct:roiTotal,cantidad:ventas.length,porProducto:byProdVentas},
-      actividadEquipo:byUser,
+      leads:leadsSummary,
       totalCampanas:campaigns.length,
       totalCanceladas:canceladas.length
     };
 
+    var role0=sessionStorage.getItem('panel_role');
+    var modelo=role0==='admin'?'claude-fable-5':'claude-sonnet-5';
+
     var prompt='Sos un analista senior de marketing digital. Con los siguientes datos reales de una empresa (sectores AGRO e Ingeniería), '
       +'escribí un informe ejecutivo completo en español, en un tono profesional y directo. '
       +'Usá EXACTAMENTE estos títulos de sección, cada uno en su propia línea empezando con "## ": '
-      +'"## Resumen Ejecutivo", "## Resultados de Campañas", "## Mailings", "## Ventas y ROI", "## Presupuesto y Ejecución", "## Actividad del Equipo", "## Recomendaciones Prioritarias". '
+      +'"## Resumen Ejecutivo", "## Resultados de Campañas", "## Mailings", "## Ventas y ROI", "## Leads y Calificación de Prospectos", "## Presupuesto y Ejecución", "## Recomendaciones Prioritarias". '
       +'Cada sección debe tener 2 a 4 párrafos cortos o bullets, con números concretos citados de los datos. '
-      +'En Recomendaciones Prioritarias dá máximo 5 acciones concretas y accionables. '
+      +'En "Leads y Calificación de Prospectos" analizá el volumen de leads por área (Ingeniería y AGRO), la calidad según el % calificado como ALTA, y qué campañas o productos están generando los prospectos de mejor calidad vs. los que generan mayormente descarte. '
+      +'En Recomendaciones Prioritarias dá máximo 5 acciones concretas y accionables, incorporando también qué hacer con los leads ALTA sin gestionar si corresponde. '
       +'No inventes datos que no estén en el JSON.\n\nDATOS:\n'+JSON.stringify(summaryData);
 
-    body.innerHTML='<div class="informe-loading">✦ Fable está redactando el análisis ejecutivo...</div>';
+    body.innerHTML='<div class="informe-loading">✦ '+(modelo==='claude-fable-5'?'Fable':'La IA')+' está redactando el análisis ejecutivo...</div>';
 
     var resp=await fetch('https://mkt-ai-proxy.tcoppede.workers.dev/',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({model:'claude-fable-5',max_tokens:3000,messages:[{role:'user',content:prompt}]})
+      body:JSON.stringify({model:modelo,max_tokens:3000,messages:[{role:'user',content:prompt}]})
     });
     var data=await resp.json();
     var textBlock=data.content&&data.content.find?data.content.find(function(b){return b.type==='text'&&b.text;}):null;
@@ -581,15 +609,25 @@ async function generarInforme(){
     var lineChartHTML=buildLineChart(mkeys.map(function(k){return byMonth[k];}));
     var barProdVentasHTML=buildBarChart(byProdVentas,'prod','monto','#1a4fa8');
 
+    function buildLeadsBar(){
+      var p=leadsPorPrioridad,tot=leadsTotal||1;
+      var segs=[{k:'ALTA',c:'#1c6b45'},{k:'MEDIA',c:'#c99a2e'},{k:'BAJA',c:'#8fa3b8'},{k:'DESCARTAR',c:'#b23b31'}];
+      var bar=segs.map(function(s){var pct=Math.round((p[s.k]||0)/tot*100);return '<div style="width:'+pct+'%;height:100%;background:'+s.c+'"></div>';}).join('');
+      var legend=segs.map(function(s){return '<span style="font-size:10px;color:#7a746a;margin-right:14px"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:'+s.c+';margin-right:5px;vertical-align:1px"></span>'+s.k+' '+(p[s.k]||0)+'</span>';}).join('');
+      return '<div style="display:flex;height:9px;border-radius:6px;overflow:hidden;background:#ede9e1;margin-bottom:8px">'+bar+'</div><div>'+legend+'</div>';
+    }
+    var leadsBarHTML=leadsTotal?buildLeadsBar():'';
+
     // ── RENDER FULL REPORT ──
     var today=new Date().toLocaleDateString('es-AR',{day:'numeric',month:'long',year:'numeric'});
+    var modeloLabel=modelo==='claude-fable-5'?'Claude Fable':'IA';
 
     var html='<div class="informe-actions">'
       +'<button class="logs-refresh" onclick="exportInformePDF()">↓ Descargar PDF</button>'
       +'<button class="logs-refresh" onclick="generarInforme()">✦ Regenerar</button>'
       +'</div>'
       +'<div class="informe-doc">'
-      +'<div class="informe-header"><div class="informe-title">Informe Ejecutivo · MKT</div><div class="informe-date">'+today+' · Generado con Claude Fable</div></div>'
+      +'<div class="informe-header"><div class="informe-title">Informe Ejecutivo · MKT</div><div class="informe-date">'+today+' · Generado con '+modeloLabel+'</div></div>'
 
       +'<div class="informe-kpis">'
       +'<div class="informe-kpi"><div class="informe-kpi-label">Invertido</div><div class="informe-kpi-val">'+fmtM(totEff)+'</div></div>'
@@ -616,11 +654,12 @@ async function generarInforme(){
       +(Object.keys(byProdVentas).length?'<div style="margin-bottom:14px">'+barProdVentasHTML+'</div>':'')
       +'<div class="informe-section-body">'+mdToHtml(sections['Ventas y ROI']||'')+'</div></div>'
 
+      +'<div class="informe-section"><div class="informe-section-title">Leads y Calificación de Prospectos</div>'
+      +(leadsBarHTML?'<div style="margin-bottom:14px">'+leadsBarHTML+'</div>':'')
+      +'<div class="informe-section-body">'+mdToHtml(sections['Leads y Calificación de Prospectos']||'')+'</div></div>'
+
       +'<div class="informe-section"><div class="informe-section-title">Presupuesto y Ejecución</div>'
       +'<div class="informe-section-body">'+mdToHtml(sections['Presupuesto y Ejecución']||'')+'</div></div>'
-
-      +'<div class="informe-section"><div class="informe-section-title">Actividad del Equipo</div>'
-      +'<div class="informe-section-body">'+mdToHtml(sections['Actividad del Equipo']||'')+'</div></div>'
 
       +'<div class="informe-section" style="background:#fdf8ec;border:1px solid #f0dfa0;border-radius:10px;padding:18px 20px">'
       +'<div class="informe-section-title" style="color:#8a6500;border-bottom-color:#f0dfa0">Recomendaciones Prioritarias</div>'
@@ -634,7 +673,7 @@ async function generarInforme(){
     var role=sessionStorage.getItem('panel_role');
     var user=sessionStorage.getItem('panel_user');
     // Importante: esperar cada escritura antes de la siguiente para no pisar datos (mismo archivo)
-    await logActivity(role,user,'ai_informe','Generó informe ejecutivo completo con Fable');
+    await logActivity(role,user,'ai_informe','Generó informe ejecutivo completo con '+modeloLabel);
     var saved=await saveInformeToHistory(window._lastInformeDoc,role,user);
     if(!saved){
       var warn=document.createElement('div');
