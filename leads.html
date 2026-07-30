@@ -640,7 +640,7 @@ function firmaHTML(){
 }
 function doPrint(html){
   document.getElementById('print-area').innerHTML = html;
-  window.print();
+  setTimeout(function(){ window.print(); }, 600);
 }
 function metricasTable(c){
   const st = campStats(c);
