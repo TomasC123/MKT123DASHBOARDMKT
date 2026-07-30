@@ -389,12 +389,22 @@ const ALERT_RULES = {
 function slugKey(key){ return 'camp-'+key.replace(/[^a-zA-Z0-9]+/g,'-'); }
 function computeAlerts(){
   const hoy = new Date();
+  const mesActual = hoy.getMonth(), anioActual = hoy.getFullYear();
   const out = [];
   allCampanas().forEach(function(c){
     if (c.total < ALERT_RULES.minLeadsParaAlertar) return;
+
+    // Solo evaluamos campañas con actividad en el mes en curso (las
+    // que ya terminaron y no generan leads hace tiempo no son "problemas",
+    // simplemente dejaron de correr).
+    const ult = lastDia(c.porDia);
+    if (!ult) return;
+    const ultDate = new Date(ult+'T00:00:00');
+    const esDelMesActual = ultDate.getMonth()===mesActual && ultDate.getFullYear()===anioActual;
+    if (!esDelMesActual) return;
+
     const msgs = [];
     const serie = filledSeries(c.porDia);
-    const ult = lastDia(c.porDia);
 
     // 1) Sin actividad reciente
     if (ult){
@@ -459,7 +469,7 @@ function renderAlerts(){
   const box = document.getElementById('alerts');
   const items = computeAlerts();
   if (!items.length){
-    box.innerHTML = '<div class="alerts-empty">✓ Sin alertas activas — todas las campañas dentro de parámetros normales.</div>';
+    box.innerHTML = '<div class="alerts-empty">✓ Sin alertas activas — campañas de este mes dentro de parámetros normales.</div>';
     return;
   }
   const totalMsgs = items.reduce(function(s,i){return s+i.msgs.length;},0);
