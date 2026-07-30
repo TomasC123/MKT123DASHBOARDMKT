@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Calendario de Contenidos</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,600;1,9..144,300&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root{--bg:#f5f3ee;--surface:#fff;--surface2:#f0ede6;--border:#d9d4c9;--border-light:#e8e4db;--text:#1a1714;--text-muted:#7a746a;--text-faint:#b0a99e;--radius:6px;--radius-lg:10px;--mono:'DM Mono',monospace;--serif:'Fraunces',Georgia,serif}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -715,20 +716,30 @@ function calcBudgetDetail(){
 
 // EXCEL
 function exportExcel(){
-  if(!window.XLSX){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';s.onload=function(){doExcel();};document.head.appendChild(s);}
-  else doExcel();
+  if(window.XLSX){ doExcel(); return; }
+  // Fallback por si el script de la cabecera no llegó a cargar
+  var s=document.createElement('script');
+  s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+  s.onload=function(){ doExcel(); };
+  s.onerror=function(){ alert('No se pudo cargar la librería de Excel. Revisá tu conexión a internet e intentá de nuevo.'); };
+  document.head.appendChild(s);
 }
 function doExcel(){
-  var days=getDays(),det=calcBudgetDetail(),stats=calcStats(),prods=activeProdList();
-  var byType=det.byType,byProd=det.byProd,byWeek=det.byWeek;
-  var wb=XLSX.utils.book_new();
-  var calH=['Semana','Día','Fecha'].concat(prods.map(function(p){return p.name;}));
-  var calR=[calH],week=1;
-  for(var d=1;d<=days;d++){var dow=new Date(S.year,S.month,d).getDay();if(d>1&&dow===1)week++;var row=[(d===1||dow===1)?'Semana '+week:'',DAYS[dow],String(d).padStart(2,'0')+'/'+String(S.month+1).padStart(2,'0')+'/'+S.year];prods.forEach(function(p){var cid=S.cells[cellKey(d,p.id)];var camp=GLOBAL.campaigns.find(function(c){return c.id===cid;});row.push(camp?camp.name:'');});calR.push(row);}
-  var wsC=XLSX.utils.aoa_to_sheet(calR);wsC['!cols']=[{wch:10},{wch:8},{wch:10}].concat(prods.map(function(){return {wch:14};}));XLSX.utils.book_append_sheet(wb,wsC,'Calendario');
-  var budR=[[],[],['Total mensual',S.currency+' '+stats.total],['Promedio diario',S.currency+' '+Math.round(stats.total/days)],['Días con actividad',stats.activeDays],['Activaciones',stats.acts],[],['Por tipo'],['Tipo','Días',S.currency,'%']].concat(Object.entries(byType).sort(function(a,b){return b[1].budget-a[1].budget;}).map(function(e){return [e[0],e[1].days,e[1].budget,(stats.total>0?Math.round(e[1].budget/stats.total*100):0)+'%'];})).concat([['TOTAL',stats.acts,stats.total,'100%'],[],['Por semana'],['Semana','Acts',S.currency,'%']]).concat(Object.entries(byWeek).filter(function(e){return e[1].budget>0;}).map(function(e){return [e[0],e[1].acts,e[1].budget,(stats.total>0?Math.round(e[1].budget/stats.total*100):0)+'%'];})).concat([['TOTAL',stats.acts,stats.total,'100%'],[],['Por producto'],['Producto','Área','Acts',S.currency,'%']]).concat(Object.entries(byProd).sort(function(a,b){return b[1].budget-a[1].budget;}).map(function(e){return [e[0],e[1].area,e[1].acts,e[1].budget,(stats.total>0?Math.round(e[1].budget/stats.total*100):0)+'%'];})).concat([['TOTAL','',stats.acts,stats.total,'100%']]);
-  var wsB=XLSX.utils.aoa_to_sheet(budR);wsB['!cols']=[{wch:22},{wch:12},{wch:12},{wch:8}];XLSX.utils.book_append_sheet(wb,wsB,'Presupuesto');
-  XLSX.writeFile(wb,'Calendario_'+MONTHS[S.month]+'_'+S.year+'.xlsx');
+  try{
+    var days=getDays(),det=calcBudgetDetail(),stats=calcStats(),prods=activeProdList();
+    var byType=det.byType,byProd=det.byProd,byWeek=det.byWeek;
+    var wb=XLSX.utils.book_new();
+    var calH=['Semana','Día','Fecha'].concat(prods.map(function(p){return p.name;}));
+    var calR=[calH],week=1;
+    for(var d=1;d<=days;d++){var dow=new Date(S.year,S.month,d).getDay();if(d>1&&dow===1)week++;var row=[(d===1||dow===1)?'Semana '+week:'',DAYS[dow],String(d).padStart(2,'0')+'/'+String(S.month+1).padStart(2,'0')+'/'+S.year];prods.forEach(function(p){var cid=S.cells[cellKey(d,p.id)];var camp=GLOBAL.campaigns.find(function(c){return c.id===cid;});row.push(camp?camp.name:'');});calR.push(row);}
+    var wsC=XLSX.utils.aoa_to_sheet(calR);wsC['!cols']=[{wch:10},{wch:8},{wch:10}].concat(prods.map(function(){return {wch:14};}));XLSX.utils.book_append_sheet(wb,wsC,'Calendario');
+    var budR=[[],[],['Total mensual',S.currency+' '+stats.total],['Promedio diario',S.currency+' '+Math.round(stats.total/days)],['Días con actividad',stats.activeDays],['Activaciones',stats.acts],[],['Por tipo'],['Tipo','Días',S.currency,'%']].concat(Object.entries(byType).sort(function(a,b){return b[1].budget-a[1].budget;}).map(function(e){return [e[0],e[1].days,e[1].budget,(stats.total>0?Math.round(e[1].budget/stats.total*100):0)+'%'];})).concat([['TOTAL',stats.acts,stats.total,'100%'],[],['Por semana'],['Semana','Acts',S.currency,'%']]).concat(Object.entries(byWeek).filter(function(e){return e[1].budget>0;}).map(function(e){return [e[0],e[1].acts,e[1].budget,(stats.total>0?Math.round(e[1].budget/stats.total*100):0)+'%'];})).concat([['TOTAL',stats.acts,stats.total,'100%'],[],['Por producto'],['Producto','Área','Acts',S.currency,'%']]).concat(Object.entries(byProd).sort(function(a,b){return b[1].budget-a[1].budget;}).map(function(e){return [e[0],e[1].area,e[1].acts,e[1].budget,(stats.total>0?Math.round(e[1].budget/stats.total*100):0)+'%'];})).concat([['TOTAL','',stats.acts,stats.total,'100%']]);
+    var wsB=XLSX.utils.aoa_to_sheet(budR);wsB['!cols']=[{wch:22},{wch:12},{wch:12},{wch:8}];XLSX.utils.book_append_sheet(wb,wsB,'Presupuesto');
+    XLSX.writeFile(wb,'Calendario_'+MONTHS[S.month]+'_'+S.year+'.xlsx');
+  }catch(err){
+    console.error('Error al exportar Excel:', err);
+    alert('Ocurrió un problema al generar el Excel. Revisá la consola (F12) para más detalle, o avisá a Tomás con este mensaje: '+err.message);
+  }
 }
 
 // ── AUTH (rol compartido con el panel) ────────────────
