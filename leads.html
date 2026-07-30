@@ -382,6 +382,7 @@ function visibleCampanas(){
 const ALERT_RULES = {
   minLeadsParaAlertar: 5,     // no alertar campañas muy chicas (ruido)
   diasSinActividad: 5,        // "sin actividad" si no hay leads en N días
+  diasParaConsiderarFinalizada: 15, // si no hay leads hace más de esto, ya terminó: no se evalúa
   caidaVolumenPct: 50,        // "caída" si últimos 7 días <= 50% de los 7 previos
   diasSinAltaReciente: 7,     // ventana para buscar leads ALTA recientes
   pctDescartarAlerta: 40      // "alto descarte" si supera este % del total
@@ -389,29 +390,25 @@ const ALERT_RULES = {
 function slugKey(key){ return 'camp-'+key.replace(/[^a-zA-Z0-9]+/g,'-'); }
 function computeAlerts(){
   const hoy = new Date();
-  const mesActual = hoy.getMonth(), anioActual = hoy.getFullYear();
   const out = [];
   allCampanas().forEach(function(c){
     if (c.total < ALERT_RULES.minLeadsParaAlertar) return;
 
-    // Solo evaluamos campañas con actividad en el mes en curso (las
-    // que ya terminaron y no generan leads hace tiempo no son "problemas",
-    // simplemente dejaron de correr).
+    // Solo evaluamos campañas con actividad reciente de verdad. Si el
+    // último lead fue hace más de X días, la campaña ya terminó de
+    // correr — no es un "problema", simplemente dejó de estar activa.
     const ult = lastDia(c.porDia);
     if (!ult) return;
     const ultDate = new Date(ult+'T00:00:00');
-    const esDelMesActual = ultDate.getMonth()===mesActual && ultDate.getFullYear()===anioActual;
-    if (!esDelMesActual) return;
+    const diasDesdeUltimo = Math.floor((hoy - ultDate) / 86400000);
+    if (diasDesdeUltimo > ALERT_RULES.diasParaConsiderarFinalizada) return;
 
     const msgs = [];
     const serie = filledSeries(c.porDia);
 
     // 1) Sin actividad reciente
-    if (ult){
-      const diasDesde = Math.floor((hoy - new Date(ult+'T00:00:00')) / 86400000);
-      if (diasDesde >= ALERT_RULES.diasSinActividad){
-        msgs.push({ sev:'warn', text:'Sin nuevos leads hace '+diasDesde+' días' });
-      }
+    if (diasDesdeUltimo >= ALERT_RULES.diasSinActividad){
+      msgs.push({ sev:'warn', text:'Sin nuevos leads hace '+diasDesdeUltimo+' días' });
     }
 
     // 2) Caída de volumen (últimos 7 días vs 7 anteriores)
