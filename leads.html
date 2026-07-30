@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Leads en tiempo real — MKT Panel</title>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -26,7 +27,7 @@ body{background:var(--bg);color:var(--txt);font-family:'Geist Mono',monospace;fo
 .head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:22px}
 .head h1{font-family:'Instrument Serif',Georgia,serif;font-style:italic;font-weight:400;font-size:30px;line-height:1.1}
 .head .sub{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut2);margin-top:6px}
-.head-right{display:flex;align-items:center;gap:14px}
+.head-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .stamp{font-size:10px;color:var(--mut2);letter-spacing:.05em;text-align:right}
 .btn{font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:.06em;color:var(--txt);background:none;border:1px solid var(--line);padding:9px 16px;cursor:pointer;transition:all .15s}
 .btn:hover{border-color:rgba(255,255,255,.28)}
@@ -34,15 +35,39 @@ body{background:var(--bg);color:var(--txt);font-family:'Geist Mono',monospace;fo
 
 /* ── Filters + summary ── */
 .bar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:12px 0;margin-bottom:26px}
-.chips{display:flex;gap:6px}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
 .chip{font-family:'Geist Mono',monospace;font-size:11px;color:var(--mut);background:none;border:1px solid transparent;padding:6px 12px;cursor:pointer;transition:all .15s;letter-spacing:.03em}
 .chip:hover{color:var(--txt)}
 .chip.on{color:var(--txt);border-color:var(--line);background:var(--panel)}
+.chip.cmp{border-color:var(--line)}
 .totals{display:flex;gap:18px;flex-wrap:wrap;font-size:11px}
 .totals span{color:var(--mut)}
 .totals b{font-weight:500;color:var(--txt);margin-left:5px}
 .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px}
 .d-alta{background:var(--alta)}.d-media{background:var(--media)}.d-baja{background:var(--baja)}.d-desc{background:var(--desc)}
+
+/* ── Comparador ── */
+.compare{display:none;border:1px solid var(--line);background:var(--panel);padding:18px 20px;margin-bottom:26px}
+.compare.open{display:block}
+.compare-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.compare-title{font-family:'Instrument Serif',Georgia,serif;font-style:italic;font-size:19px}
+.compare-close{background:none;border:none;color:var(--mut);cursor:pointer;font-family:'Geist Mono',monospace;font-size:11px}
+.compare-close:hover{color:var(--txt)}
+.compare-selects{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.compare-selects label{flex:1;min-width:240px;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut2)}
+.compare-selects select{display:block;width:100%;margin-top:6px;background:#171512;color:var(--txt);border:1px solid var(--line);font-family:'Geist Mono',monospace;font-size:11px;padding:8px 10px}
+.cmp-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+.cmp-side{border:1px solid var(--line);padding:12px 14px}
+.cmp-name{font-family:'Instrument Serif',Georgia,serif;font-style:italic;font-size:15px;margin-bottom:2px}
+.cmp-sub{font-size:9px;color:var(--mut2);letter-spacing:.06em;margin-bottom:10px}
+.cmp-metrics{display:flex;flex-wrap:wrap;gap:12px;font-size:10px;color:var(--mut)}
+.cmp-metrics b{display:block;color:var(--txt);font-size:14px;font-weight:500;margin-top:2px}
+.cmp-a-mark{display:inline-block;width:14px;height:3px;background:rgba(247,245,240,.9);margin-right:7px;vertical-align:3px}
+.cmp-b-mark{display:inline-block;width:14px;height:3px;background:var(--media);margin-right:7px;vertical-align:3px}
+.cmp-chart{height:110px;margin-top:4px}
+.cmp-chart svg{width:100%;height:100%;display:block}
+.cmp-axis{display:flex;justify-content:space-between;font-size:9px;color:var(--mut2);letter-spacing:.08em;text-transform:uppercase;margin-top:6px}
+.compare .hint{font-size:11px;color:var(--mut2);text-align:center;padding:14px 0}
 
 /* ── Cards ── */
 .grid{display:flex;flex-direction:column;gap:14px}
@@ -66,11 +91,24 @@ body{background:var(--bg);color:var(--txt);font-family:'Geist Mono',monospace;fo
 .spark svg{width:100%;height:100%;display:block}
 .spark-label{font-size:9px;color:var(--mut2);letter-spacing:.06em;text-transform:uppercase;flex-shrink:0}
 
-.leads-toggle{margin-top:16px;font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);background:none;border:none;border-top:1px solid var(--line);width:100%;text-align:left;padding:12px 0 0;cursor:pointer;transition:color .15s}
+.leads-toggle{margin-top:14px;font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);background:none;border:none;border-top:1px solid var(--line);width:100%;text-align:left;padding:12px 0 0;cursor:pointer;transition:color .15s}
 .leads-toggle:hover{color:var(--txt)}
-.leads{display:none;margin-top:14px}
-.leads.open{display:block}
+.sect{display:none;margin-top:14px}
+.sect.open{display:block}
 
+/* ── Tabla día a día ── */
+.daywrap{max-height:320px;overflow-y:auto;border:1px solid var(--line)}
+.daytable{width:100%;border-collapse:collapse;font-size:11px}
+.daytable th{position:sticky;top:0;background:#171512;text-align:left;font-weight:500;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut2);padding:9px 12px;border-bottom:1px solid var(--line)}
+.daytable td{padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.05);color:var(--mut)}
+.daytable td:first-child{color:var(--txt)}
+.daytable td.num{text-align:right}
+.daytable th.num{text-align:right}
+.pos{color:var(--alta)}
+.neg{color:var(--desc)}
+.flat{color:var(--mut2)}
+
+/* ── Leads list ── */
 .lead{border-top:1px solid rgba(255,255,255,.05);padding:12px 0}
 .lead:first-child{border-top:none}
 .lead-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
@@ -91,11 +129,30 @@ body{background:var(--bg);color:var(--txt);font-family:'Geist Mono',monospace;fo
 .state.err{color:var(--desc)}
 .state small{display:block;margin-top:8px;font-size:10px;color:var(--mut2);line-height:1.6}
 
+/* ── Informes PDF (área de impresión) ── */
+#print-area{display:none}
+#print-area h1{font-family:'Instrument Serif',Georgia,serif;font-style:italic;font-weight:400;font-size:24px;margin-bottom:3px}
+#print-area h2{font-family:'Instrument Serif',Georgia,serif;font-style:italic;font-weight:400;font-size:16px;margin:18px 0 8px}
+#print-area .psub{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:#777;margin-bottom:14px}
+#print-area table{width:100%;border-collapse:collapse;font-size:10px;margin:6px 0 12px}
+#print-area th,#print-area td{border:1px solid #bbb;padding:5px 8px;text-align:left;vertical-align:top}
+#print-area th{background:#f2efe9;font-weight:500;font-size:9px;letter-spacing:.06em;text-transform:uppercase}
+#print-area .pnum{text-align:right}
+#print-area .pctx{font-size:9px;color:#555;line-height:1.5}
+#print-area .firma{margin-top:26px;padding-top:10px;border-top:1px solid #999;font-size:9px;color:#666}
+#print-area .pbreak{page-break-before:always}
+@media print{
+  body{background:#fff!important;color:#111!important}
+  .wrap{display:none!important}
+  #print-area{display:block!important;color:#111;font-family:'Geist Mono',monospace;font-size:11px}
+}
+
 @media (max-width:640px){
   .wrap{padding:20px 14px 50px}
   .head h1{font-size:24px}
   .card{padding:14px}
   .card-total .n{font-size:24px}
+  .cmp-grid{grid-template-columns:1fr}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -110,6 +167,8 @@ body{background:var(--bg);color:var(--txt);font-family:'Geist Mono',monospace;fo
     </div>
     <div class="head-right">
       <div class="stamp" id="stamp">—</div>
+      <button class="btn" onclick="informeGeneral()">↓ Informe PDF</button>
+      <button class="btn" onclick="exportExcel()">↓ Excel</button>
       <button class="btn" id="btnRefresh" onclick="loadAll()">Actualizar</button>
     </div>
   </div>
@@ -119,8 +178,25 @@ body{background:var(--bg);color:var(--txt);font-family:'Geist Mono',monospace;fo
       <button class="chip on" data-f="todas" onclick="setFilter('todas',this)">Todas</button>
       <button class="chip" data-f="ing" onclick="setFilter('ing',this)">Ingeniería</button>
       <button class="chip" data-f="agro" onclick="setFilter('agro',this)">AGRO</button>
+      <button class="chip cmp" id="chipCmp" onclick="toggleCompare()">⇄ Comparar campañas</button>
     </div>
     <div class="totals" id="totals"></div>
+  </div>
+
+  <div class="compare" id="compare">
+    <div class="compare-head">
+      <div class="compare-title">Comparar campañas</div>
+      <button class="compare-close" onclick="toggleCompare()">✕ Cerrar</button>
+    </div>
+    <div class="compare-selects">
+      <label>Campaña A
+        <select id="selA" onchange="renderCompare()"></select>
+      </label>
+      <label>Campaña B
+        <select id="selB" onchange="renderCompare()"></select>
+      </label>
+    </div>
+    <div id="cmp-body"><div class="hint">Elegí dos campañas para compararlas.</div></div>
   </div>
 
   <div class="grid" id="grid">
@@ -129,6 +205,8 @@ body{background:var(--bg);color:var(--txt);font-family:'Geist Mono',monospace;fo
 
 </div>
 
+<div id="print-area"></div>
+
 <script>
 const SOURCES = [
   { id:'ing',  label:'Ingeniería', url:'https://script.google.com/macros/s/AKfycbzU2GRxL87N47Jf0QMMBXy_2xZe98DBP-vbZSYnvXtE92c-4mqX8jveI-jxrogRPolS6g/exec?key=geo2026panel' },
@@ -136,24 +214,80 @@ const SOURCES = [
 ];
 const state = { data:{}, filter:'todas' };
 
-function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
 function fmtFecha(iso){
   const d = new Date(iso);
   if (isNaN(d)) return '';
   return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
 }
+function fmtDia(k){
+  const p = String(k).split('-');
+  return p.length===3 ? p[2]+'/'+p[1] : k;
+}
+function fmtDiaFull(k){
+  const p = String(k).split('-');
+  return p.length===3 ? p[2]+'/'+p[1]+'/'+p[0] : k;
+}
 function lastDia(porDia){
   const keys = Object.keys(porDia||{}).sort();
   return keys.length ? keys[keys.length-1] : '';
+}
+function filledSeries(porDia){
+  const keys = Object.keys(porDia||{}).sort();
+  if (!keys.length) return [];
+  const start = new Date(keys[0]+'T00:00:00Z');
+  const end = new Date(keys[keys.length-1]+'T00:00:00Z');
+  const days = Math.round((end-start)/86400000)+1;
+  const out = [];
+  for (let d=0; d<days; d++){
+    const k = new Date(start.getTime()+d*86400000).toISOString().slice(0,10);
+    out.push({ fecha:k, count:porDia[k]||0 });
+  }
+  return out;
+}
+// Filas día a día con variación (orden: más reciente arriba)
+function dayRows(serie){
+  const rows = [];
+  for (let i=serie.length-1; i>=0; i--){
+    const hoy = serie[i];
+    const ayer = i>0 ? serie[i-1] : null;
+    let varTxt, cls;
+    if (!ayer){ varTxt='—'; cls='flat'; }
+    else {
+      const d = hoy.count - ayer.count;
+      if (d===0){ varTxt='='; cls='flat'; }
+      else {
+        const sign = d>0 ? '+' : '';
+        const pct = ayer.count>0 ? ' ('+sign+Math.round(d/ayer.count*100)+'%)' : '';
+        varTxt = sign+d+pct;
+        cls = d>0 ? 'pos' : 'neg';
+      }
+    }
+    rows.push({ fecha:hoy.fecha, count:hoy.count, varTxt:varTxt, cls:cls });
+  }
+  return rows;
+}
+function campStats(c){
+  const serie = filledSeries(c.porDia);
+  const p = c.porPrioridad||{};
+  const pctAlta = c.total ? Math.round((p.ALTA||0)/c.total*100) : 0;
+  const prom = serie.length ? (c.total/serie.length) : 0;
+  let best = {fecha:'', count:0};
+  serie.forEach(function(s){ if (s.count>best.count) best=s; });
+  return {
+    serie:serie, pctAlta:pctAlta, prom:prom, best:best,
+    first: serie.length?serie[0].fecha:'', last: serie.length?serie[serie.length-1].fecha:'',
+    dur: serie.length
+  };
 }
 
 async function loadAll(){
   const btn = document.getElementById('btnRefresh');
   btn.disabled = true; btn.textContent = 'Actualizando…';
-  const results = await Promise.allSettled(SOURCES.map(s =>
-    fetch(s.url).then(r => r.json())
-  ));
-  SOURCES.forEach((s,i) => {
+  const results = await Promise.allSettled(SOURCES.map(function(s){
+    return fetch(s.url).then(function(r){ return r.json(); });
+  }));
+  SOURCES.forEach(function(s,i){
     const r = results[i];
     if (r.status === 'fulfilled' && r.value && Array.isArray(r.value.campanas)) {
       state.data[s.id] = { ok:true, payload:r.value };
@@ -162,41 +296,45 @@ async function loadAll(){
     }
   });
   btn.disabled = false; btn.textContent = 'Actualizar';
-  const stamps = SOURCES.map(s => state.data[s.id]?.ok ? state.data[s.id].payload.actualizado : null).filter(Boolean);
+  const stamps = SOURCES.map(function(s){ return state.data[s.id] && state.data[s.id].ok ? state.data[s.id].payload.actualizado : null; }).filter(Boolean);
   document.getElementById('stamp').textContent = stamps.length ? 'Actualizado ' + fmtFecha(stamps.sort().pop()) : '';
   render();
+  populateCompare();
+  renderCompare();
 }
 
 function setFilter(f, el){
   state.filter = f;
-  document.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c===el));
+  document.querySelectorAll('.chip[data-f]').forEach(function(c){ c.classList.toggle('on', c===el); });
   render();
 }
 
-function visibleCampanas(){
+function allCampanas(){
   const out = [];
-  SOURCES.forEach(s => {
-    if (state.filter !== 'todas' && state.filter !== s.id) return;
+  SOURCES.forEach(function(s){
     const d = state.data[s.id];
     if (!d || !d.ok) return;
-    d.payload.campanas.forEach(c => {
-      if (!c.total) return; // hojas vacías fuera
-      out.push({ ...c, _area:s.label, _areaId:s.id });
+    d.payload.campanas.forEach(function(c){
+      if (!c.total) return;
+      out.push(Object.assign({}, c, { _area:s.label, _areaId:s.id }));
     });
   });
-  out.sort((a,b) => lastDia(b.porDia).localeCompare(lastDia(a.porDia)));
   return out;
+}
+function visibleCampanas(){
+  return allCampanas()
+    .filter(function(c){ return state.filter==='todas' || state.filter===c._areaId; })
+    .sort(function(a,b){ return lastDia(b.porDia).localeCompare(lastDia(a.porDia)); });
 }
 
 function render(){
   const grid = document.getElementById('grid');
   const camps = visibleCampanas();
 
-  // Totales
   const t = { total:0, ALTA:0, MEDIA:0, BAJA:0, DESCARTAR:0 };
-  camps.forEach(c => {
+  camps.forEach(function(c){
     t.total += c.total;
-    ['ALTA','MEDIA','BAJA','DESCARTAR'].forEach(k => t[k] += (c.porPrioridad?.[k]||0));
+    ['ALTA','MEDIA','BAJA','DESCARTAR'].forEach(function(k){ t[k] += (c.porPrioridad && c.porPrioridad[k])||0; });
   });
   document.getElementById('totals').innerHTML =
     '<span>Leads<b>'+t.total+'</b></span>'+
@@ -205,25 +343,30 @@ function render(){
     '<span><i class="dot d-baja"></i>Baja<b>'+t.BAJA+'</b></span>'+
     '<span><i class="dot d-desc"></i>Desc.<b>'+t.DESCARTAR+'</b></span>';
 
-  // Errores de fuente
-  const errs = SOURCES.filter(s => (state.filter==='todas'||state.filter===s.id) && state.data[s.id] && !state.data[s.id].ok);
-  let html = errs.map(s =>
-    '<div class="state err">No se pudo cargar '+s.label+'.'+
-    '<small>Verificá la conexión, o que la implementación del Apps Script esté publicada con acceso "Cualquier usuario".</small></div>'
-  ).join('');
+  const errs = SOURCES.filter(function(s){ return (state.filter==='todas'||state.filter===s.id) && state.data[s.id] && !state.data[s.id].ok; });
+  let html = errs.map(function(s){
+    return '<div class="state err">No se pudo cargar '+s.label+'.'+
+    '<small>Verificá la conexión, o que la implementación del Apps Script esté publicada con acceso "Cualquier persona".</small></div>';
+  }).join('');
 
   if (!camps.length && !errs.length){
     html += '<div class="state">Sin leads para mostrar.</div>';
   }
 
-  html += camps.map((c,i) => cardHTML(c,i)).join('');
+  html += camps.map(cardHTML).join('');
   grid.innerHTML = html;
 }
 
-function cardHTML(c, i){
+function tgl(btn, openLabel, closedLabel){
+  const box = btn.nextElementSibling;
+  box.classList.toggle('open');
+  btn.textContent = box.classList.contains('open') ? openLabel : closedLabel;
+}
+
+function cardHTML(c){
   const p = c.porPrioridad || {};
   const tot = c.total || 1;
-  const seg = k => ((p[k]||0)/tot*100).toFixed(2);
+  const seg = function(k){ return ((p[k]||0)/tot*100).toFixed(2); };
   const ult = lastDia(c.porDia);
   const leads = c.ultimosLeads || [];
 
@@ -232,7 +375,7 @@ function cardHTML(c, i){
       '<div>'+
         '<div class="card-title">'+esc(c.producto)+'</div>'+
         '<div class="card-meta"><span class="area-tag">'+esc(c._area)+'</span>'+esc(c.hoja)+
-          (ult ? ' · último lead '+esc(ult.split('-').reverse().slice(0,2).join('/')) : '')+'</div>'+
+          (ult ? ' · último lead '+fmtDia(ult) : '')+'</div>'+
       '</div>'+
       '<div class="card-total"><div class="n">'+c.total+'</div><div class="l">leads</div></div>'+
     '</div>'+
@@ -252,11 +395,25 @@ function cardHTML(c, i){
       '<div class="spark">'+sparkSVG(c.porDia)+'</div>'+
       '<div class="spark-label">Leads / día</div>'+
     '</div>'+
+    '<button class="leads-toggle" onclick="tgl(this,\'Ocultar día a día\',\'Ver día a día\')">Ver día a día</button>'+
+    '<div class="sect">'+dayTableHTML(c)+'</div>'+
     (leads.length ?
-      '<button class="leads-toggle" onclick="this.nextElementSibling.classList.toggle(\'open\');this.textContent=this.nextElementSibling.classList.contains(\'open\')?\'Ocultar leads\':\'Ver últimos leads ('+leads.length+')\'">Ver últimos leads ('+leads.length+')</button>'+
-      '<div class="leads">'+leads.map(leadHTML).join('')+'</div>'
+      '<button class="leads-toggle" onclick="tgl(this,\'Ocultar leads\',\'Ver últimos leads ('+leads.length+')\')">Ver últimos leads ('+leads.length+')</button>'+
+      '<div class="sect">'+leads.map(leadHTML).join('')+'</div>'
     : '')+
+    '<button class="leads-toggle" data-key="'+esc(campKey(c))+'" onclick="informeCampanaBtn(this)">↓ Descargar informe (PDF)</button>'+
   '</div>';
+}
+
+function dayTableHTML(c){
+  const rows = dayRows(filledSeries(c.porDia));
+  if (!rows.length) return '<div class="state">Sin datos diarios.</div>';
+  return '<div class="daywrap"><table class="daytable">'+
+    '<thead><tr><th>Fecha</th><th class="num">Leads</th><th class="num">Variación vs día anterior</th></tr></thead>'+
+    '<tbody>'+rows.map(function(r){
+      return '<tr><td>'+fmtDia(r.fecha)+'</td><td class="num">'+r.count+'</td><td class="num '+r.cls+'">'+r.varTxt+'</td></tr>';
+    }).join('')+'</tbody>'+
+  '</table></div>';
 }
 
 function leadHTML(l){
@@ -278,22 +435,13 @@ function leadHTML(l){
 }
 
 function sparkSVG(porDia){
-  const keys = Object.keys(porDia||{}).sort();
-  if (keys.length < 2) return '<svg viewBox="0 0 100 30" preserveAspectRatio="none"><line x1="0" y1="28" x2="100" y2="28" stroke="rgba(255,255,255,.12)" stroke-width="1"/></svg>';
-  // Rango completo de fechas para que el eje X sea temporal real
-  const start = new Date(keys[0]+'T00:00:00');
-  const end = new Date(keys[keys.length-1]+'T00:00:00');
-  const days = Math.round((end-start)/86400000)+1;
-  const vals = [];
-  for (let d=0; d<days; d++){
-    const dt = new Date(start.getTime()+d*86400000);
-    const k = dt.toISOString().slice(0,10);
-    vals.push(porDia[k]||0);
-  }
-  const max = Math.max(...vals, 1);
-  const W=100, H=30, pad=1;
-  const pts = vals.map((v,idx) => {
-    const x = days===1 ? 0 : (idx/(days-1))*W;
+  const serie = filledSeries(porDia);
+  if (serie.length < 2) return '<svg viewBox="0 0 100 30" preserveAspectRatio="none"><line x1="0" y1="28" x2="100" y2="28" stroke="rgba(255,255,255,.12)" stroke-width="1"/></svg>';
+  const vals = serie.map(function(s){ return s.count; });
+  const max = Math.max.apply(null, vals.concat([1]));
+  const W=100, H=30, pad=1, n=vals.length;
+  const pts = vals.map(function(v,idx){
+    const x = (idx/(n-1))*W;
     const y = H-pad - (v/max)*(H-2*pad);
     return x.toFixed(2)+','+y.toFixed(2);
   });
@@ -301,6 +449,247 @@ function sparkSVG(porDia){
     '<polygon points="0,'+H+' '+pts.join(' ')+' '+W+','+H+'" fill="rgba(247,245,240,.06)"/>'+
     '<polyline points="'+pts.join(' ')+'" fill="none" stroke="rgba(247,245,240,.55)" stroke-width="1.2" vector-effect="non-scaling-stroke"/>'+
   '</svg>';
+}
+
+/* ── Comparador ─────────────────────────────────────── */
+function campKey(c){ return c._areaId+'||'+c.hoja+'||'+c.producto; }
+function findCamp(key){
+  return allCampanas().find(function(c){ return campKey(c)===key; }) || null;
+}
+function toggleCompare(){
+  const box = document.getElementById('compare');
+  box.classList.toggle('open');
+  document.getElementById('chipCmp').classList.toggle('on', box.classList.contains('open'));
+  if (box.classList.contains('open')) populateCompare();
+}
+function populateCompare(){
+  const camps = allCampanas();
+  ['selA','selB'].forEach(function(id){
+    const sel = document.getElementById(id);
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">— Elegir campaña —</option>' + camps.map(function(c){
+      return '<option value="'+esc(campKey(c))+'">'+esc(c.producto)+' — '+esc(c.hoja)+' ('+esc(c._area)+')</option>';
+    }).join('');
+    if (prev && camps.some(function(c){ return campKey(c)===prev; })) sel.value = prev;
+  });
+}
+function cmpMetrics(c, markClass){
+  const st = campStats(c);
+  const p = c.porPrioridad||{};
+  return '<div class="cmp-side">'+
+    '<div class="cmp-name"><span class="'+markClass+'"></span>'+esc(c.producto)+'</div>'+
+    '<div class="cmp-sub">'+esc(c._area)+' · '+esc(c.hoja)+'</div>'+
+    '<div class="cmp-metrics">'+
+      '<span>Total<b>'+c.total+'</b></span>'+
+      '<span>Alta<b>'+(p.ALTA||0)+' ('+st.pctAlta+'%)</b></span>'+
+      '<span>Prom./día<b>'+st.prom.toFixed(1)+'</b></span>'+
+      '<span>Mejor día<b>'+st.best.count+' ('+fmtDia(st.best.fecha)+')</b></span>'+
+      '<span>Duración<b>'+st.dur+' días</b></span>'+
+    '</div>'+
+  '</div>';
+}
+function renderCompare(){
+  const body = document.getElementById('cmp-body');
+  const a = findCamp(document.getElementById('selA').value);
+  const b = findCamp(document.getElementById('selB').value);
+  if (!a || !b){
+    body.innerHTML = '<div class="hint">Elegí dos campañas para compararlas.</div>';
+    return;
+  }
+  const sA = filledSeries(a.porDia).map(function(s){ return s.count; });
+  const sB = filledSeries(b.porDia).map(function(s){ return s.count; });
+  const n = Math.max(sA.length, sB.length, 2);
+  const max = Math.max.apply(null, sA.concat(sB).concat([1]));
+  const W=100, H=40, pad=2;
+  function line(vals){
+    return vals.map(function(v,idx){
+      const x = (idx/(n-1))*W;
+      const y = H-pad - (v/max)*(H-2*pad);
+      return x.toFixed(2)+','+y.toFixed(2);
+    }).join(' ');
+  }
+  body.innerHTML =
+    '<div class="cmp-grid">'+cmpMetrics(a,'cmp-a-mark')+cmpMetrics(b,'cmp-b-mark')+'</div>'+
+    '<div class="cmp-chart"><svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+
+      '<polyline points="'+line(sA)+'" fill="none" stroke="rgba(247,245,240,.9)" stroke-width="1.4" vector-effect="non-scaling-stroke"/>'+
+      '<polyline points="'+line(sB)+'" fill="none" stroke="#e8c96a" stroke-width="1.4" vector-effect="non-scaling-stroke"/>'+
+    '</svg></div>'+
+    '<div class="cmp-axis"><span>Día 1 de cada campaña</span><span>Leads por día de campaña · Día '+n+'</span></div>'+
+    '<div style="margin-top:14px"><button class="btn" onclick="informeComparativa()">↓ Informe comparativo (PDF)</button></div>';
+}
+
+/* ── Excel ──────────────────────────────────────────── */
+function exportExcel(){
+  if (typeof XLSX === 'undefined'){ alert('No se pudo cargar la librería de Excel. Revisá la conexión.'); return; }
+  const camps = visibleCampanas();
+  if (!camps.length){ alert('No hay datos para exportar.'); return; }
+  const wb = XLSX.utils.book_new();
+
+  const resumen = [['Área','Producto','Hoja','Total','ALTA','MEDIA','BAJA','DESCARTAR','Primer día','Último día']];
+  camps.forEach(function(c){
+    const keys = Object.keys(c.porDia||{}).sort();
+    const p = c.porPrioridad||{};
+    resumen.push([c._area, c.producto, c.hoja, c.total, p.ALTA||0, p.MEDIA||0, p.BAJA||0, p.DESCARTAR||0, keys[0]||'', keys[keys.length-1]||'']);
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumen), 'Resumen');
+
+  const diario = [['Fecha','Área','Producto','Hoja','Leads','Variación','Variación %']];
+  camps.forEach(function(c){
+    const serie = filledSeries(c.porDia);
+    serie.forEach(function(s,i){
+      const ayer = i>0 ? serie[i-1].count : null;
+      const d = ayer===null ? '' : s.count-ayer;
+      const pct = (ayer===null||ayer===0) ? '' : Math.round((s.count-ayer)/ayer*100)+'%';
+      diario.push([s.fecha, c._area, c.producto, c.hoja, s.count, d, pct]);
+    });
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(diario), 'Día a día');
+
+  const hl = [['Fecha','Área','Producto','Nombre','Empresa','Cargo/Rol','Ciudad','Prioridad','Valoración','Contexto IA']];
+  camps.forEach(function(c){
+    (c.ultimosLeads||[]).forEach(function(l){
+      hl.push([l.fecha||'', c._area, c.producto, l.nombre||'', l.empresa||'', l.cargo||l.rol||'', l.ciudad||l.ubicacion||'', l.prioridad||'', l.valoracion||'', l.contexto||'']);
+    });
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(hl), 'Últimos leads');
+
+  const hoy = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, 'leads_'+hoy+'.xlsx');
+}
+
+/* ── Informes PDF ───────────────────────────────────── */
+function firmaHTML(){
+  let user='', role='';
+  try{
+    user = sessionStorage.getItem('panel_user')||'';
+    role = sessionStorage.getItem('panel_role')||'';
+  }catch(e){}
+  const roleTxt = role==='admin'?'Admin':(role==='mkt'?'MKT':(role==='visitor'?'Solo lectura':''));
+  const ahora = new Date();
+  const f = String(ahora.getDate()).padStart(2,'0')+'/'+String(ahora.getMonth()+1).padStart(2,'0')+'/'+ahora.getFullYear()+' '+String(ahora.getHours()).padStart(2,'0')+':'+String(ahora.getMinutes()).padStart(2,'0');
+  return '<div class="firma">MKT Panel de Control · Geosistemas — Leads en tiempo real'+
+    (user ? ' — Generado por '+esc(user)+(roleTxt?' ('+roleTxt+')':'') : '')+
+    ' — '+f+'</div>';
+}
+function doPrint(html){
+  document.getElementById('print-area').innerHTML = html;
+  window.print();
+}
+function metricasTable(c){
+  const st = campStats(c);
+  const p = c.porPrioridad||{};
+  return '<table><thead><tr>'+
+    '<th class="pnum">Total</th><th class="pnum">Alta</th><th class="pnum">Media</th><th class="pnum">Baja</th><th class="pnum">Descartar</th>'+
+    '<th class="pnum">% Alta</th><th class="pnum">Prom./día</th><th>Mejor día</th><th>Período</th></tr></thead>'+
+    '<tbody><tr>'+
+    '<td class="pnum">'+c.total+'</td>'+
+    '<td class="pnum">'+(p.ALTA||0)+'</td>'+
+    '<td class="pnum">'+(p.MEDIA||0)+'</td>'+
+    '<td class="pnum">'+(p.BAJA||0)+'</td>'+
+    '<td class="pnum">'+(p.DESCARTAR||0)+'</td>'+
+    '<td class="pnum">'+st.pctAlta+'%</td>'+
+    '<td class="pnum">'+st.prom.toFixed(1)+'</td>'+
+    '<td>'+st.best.count+' leads ('+fmtDiaFull(st.best.fecha)+')</td>'+
+    '<td>'+fmtDiaFull(st.first)+' – '+fmtDiaFull(st.last)+' ('+st.dur+' días)</td>'+
+    '</tr></tbody></table>';
+}
+function diaTablePrint(c){
+  const rows = dayRows(filledSeries(c.porDia));
+  return '<table><thead><tr><th>Fecha</th><th class="pnum">Leads</th><th class="pnum">Variación vs día anterior</th></tr></thead><tbody>'+
+    rows.map(function(r){
+      return '<tr><td>'+fmtDiaFull(r.fecha)+'</td><td class="pnum">'+r.count+'</td><td class="pnum">'+r.varTxt+'</td></tr>';
+    }).join('')+'</tbody></table>';
+}
+function leadsTablePrint(c){
+  const leads = c.ultimosLeads||[];
+  if (!leads.length) return '';
+  return '<h2>Últimos leads</h2><table><thead><tr><th>Fecha</th><th>Nombre</th><th>Empresa</th><th>Cargo/Rol</th><th>Ubicación</th><th>Prioridad</th><th>Contexto IA</th></tr></thead><tbody>'+
+    leads.map(function(l){
+      return '<tr><td>'+fmtFecha(l.fecha)+'</td><td>'+esc(l.nombre)+'</td><td>'+esc(l.empresa)+'</td><td>'+esc(l.cargo||l.rol||'')+'</td><td>'+esc(l.ciudad||l.ubicacion||'')+'</td><td>'+esc(l.prioridad)+'</td><td class="pctx">'+esc(l.contexto||'')+'</td></tr>';
+    }).join('')+'</tbody></table>';
+}
+function seccionCampana(c){
+  return '<h2>'+esc(c.producto)+' <span style="font-size:10px;color:#777">('+esc(c._area)+' · '+esc(c.hoja)+')</span></h2>'+
+    metricasTable(c)+
+    '<h2 style="font-size:13px">Día a día</h2>'+diaTablePrint(c)+
+    leadsTablePrint(c);
+}
+function informeCampanaBtn(btn){
+  const c = findCamp(btn.dataset.key);
+  if (!c) return;
+  doPrint(
+    '<h1>Informe de campaña — '+esc(c.producto)+'</h1>'+
+    '<div class="psub">'+esc(c._area)+' · '+esc(c.hoja)+'</div>'+
+    metricasTable(c)+
+    '<h2>Día a día</h2>'+diaTablePrint(c)+
+    leadsTablePrint(c)+
+    firmaHTML()
+  );
+}
+function informeComparativa(){
+  const a = findCamp(document.getElementById('selA').value);
+  const b = findCamp(document.getElementById('selB').value);
+  if (!a || !b){ alert('Elegí las dos campañas primero.'); return; }
+  const stA = campStats(a), stB = campStats(b);
+  const pA = a.porPrioridad||{}, pB = b.porPrioridad||{};
+  const n = Math.max(stA.serie.length, stB.serie.length);
+  let filas = '';
+  for (let i=0; i<n; i++){
+    const vA = i<stA.serie.length ? stA.serie[i].count : '';
+    const vB = i<stB.serie.length ? stB.serie[i].count : '';
+    filas += '<tr><td>Día '+(i+1)+'</td><td class="pnum">'+vA+'</td><td class="pnum">'+vB+'</td></tr>';
+  }
+  function row(nom, va, vb){ return '<tr><td>'+nom+'</td><td class="pnum">'+va+'</td><td class="pnum">'+vb+'</td></tr>'; }
+  doPrint(
+    '<h1>Informe comparativo de campañas</h1>'+
+    '<div class="psub">A: '+esc(a.producto)+' ('+esc(a._area)+') &nbsp;·&nbsp; B: '+esc(b.producto)+' ('+esc(b._area)+')</div>'+
+    '<table><thead><tr><th>Métrica</th><th class="pnum">A — '+esc(a.producto)+'</th><th class="pnum">B — '+esc(b.producto)+'</th></tr></thead><tbody>'+
+      row('Total de leads', a.total, b.total)+
+      row('Alta', (pA.ALTA||0)+' ('+stA.pctAlta+'%)', (pB.ALTA||0)+' ('+stB.pctAlta+'%)')+
+      row('Media', pA.MEDIA||0, pB.MEDIA||0)+
+      row('Baja', pA.BAJA||0, pB.BAJA||0)+
+      row('Descartar', pA.DESCARTAR||0, pB.DESCARTAR||0)+
+      row('Promedio leads/día', stA.prom.toFixed(1), stB.prom.toFixed(1))+
+      row('Mejor día', stA.best.count+' ('+fmtDiaFull(stA.best.fecha)+')', stB.best.count+' ('+fmtDiaFull(stB.best.fecha)+')')+
+      row('Duración', stA.dur+' días', stB.dur+' días')+
+      row('Período', fmtDiaFull(stA.first)+' – '+fmtDiaFull(stA.last), fmtDiaFull(stB.first)+' – '+fmtDiaFull(stB.last))+
+    '</tbody></table>'+
+    '<h2>Leads por día de campaña (día 1 = inicio de cada una)</h2>'+
+    '<table><thead><tr><th>Día de campaña</th><th class="pnum">A — '+esc(a.producto)+'</th><th class="pnum">B — '+esc(b.producto)+'</th></tr></thead><tbody>'+filas+'</tbody></table>'+
+    firmaHTML()
+  );
+}
+function informeGeneral(){
+  const camps = visibleCampanas();
+  if (!camps.length){ alert('No hay datos para el informe.'); return; }
+  const nombreFiltro = state.filter==='todas' ? 'Todas las áreas' : (state.filter==='ing' ? 'Ingeniería' : 'AGRO');
+  const t = { total:0, ALTA:0, MEDIA:0, BAJA:0, DESCARTAR:0 };
+  camps.forEach(function(c){
+    t.total += c.total;
+    ['ALTA','MEDIA','BAJA','DESCARTAR'].forEach(function(k){ t[k] += (c.porPrioridad && c.porPrioridad[k])||0; });
+  });
+  let resumen = '<table><thead><tr><th>Área</th><th>Producto</th><th>Hoja</th><th class="pnum">Total</th><th class="pnum">Alta</th><th class="pnum">Media</th><th class="pnum">Baja</th><th class="pnum">Desc.</th><th class="pnum">% Alta</th><th>Período</th></tr></thead><tbody>';
+  camps.forEach(function(c){
+    const st = campStats(c);
+    const p = c.porPrioridad||{};
+    resumen += '<tr><td>'+esc(c._area)+'</td><td>'+esc(c.producto)+'</td><td>'+esc(c.hoja)+'</td>'+
+      '<td class="pnum">'+c.total+'</td><td class="pnum">'+(p.ALTA||0)+'</td><td class="pnum">'+(p.MEDIA||0)+'</td><td class="pnum">'+(p.BAJA||0)+'</td><td class="pnum">'+(p.DESCARTAR||0)+'</td>'+
+      '<td class="pnum">'+st.pctAlta+'%</td><td>'+fmtDiaFull(st.first)+' – '+fmtDiaFull(st.last)+'</td></tr>';
+  });
+  resumen += '<tr><td colspan="3"><b>TOTAL</b></td><td class="pnum"><b>'+t.total+'</b></td><td class="pnum"><b>'+t.ALTA+'</b></td><td class="pnum"><b>'+t.MEDIA+'</b></td><td class="pnum"><b>'+t.BAJA+'</b></td><td class="pnum"><b>'+t.DESCARTAR+'</b></td><td class="pnum"></td><td></td></tr></tbody></table>';
+
+  const secciones = camps.map(function(c,i){
+    return '<div'+(i>0?' class="pbreak"':'')+'>'+seccionCampana(c)+'</div>';
+  }).join('');
+
+  doPrint(
+    '<h1>Informe de leads en tiempo real</h1>'+
+    '<div class="psub">'+nombreFiltro+' · '+camps.length+' campañas · '+t.total+' leads</div>'+
+    '<h2>Resumen general</h2>'+resumen+
+    '<div class="pbreak"></div><h2 style="font-size:18px">Detalle por campaña</h2>'+
+    secciones+
+    firmaHTML()
+  );
 }
 
 loadAll();
