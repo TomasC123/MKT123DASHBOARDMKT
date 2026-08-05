@@ -116,7 +116,19 @@ iframe.active{display:block}
   <div class="home-title">MKT</div>
   <div class="home-sub" id="home-welcome"></div>
   <div class="home-tiles" id="home-tiles"></div>
+  <div id="maint-admin-toggle"></div>
   <button class="home-logout" onclick="doLogout()">Cerrar sesión</button>
+</div>
+
+<!-- MODO MANTENIMIENTO (bloquea el acceso a todos salvo Admin) -->
+<div class="login-screen" id="maint-screen" style="display:none">
+  <div class="login-box" style="text-align:center">
+    <div class="login-logo">MKT</div>
+    <div class="login-sub">Panel de Control</div>
+    <div style="margin-top:22px;font-family:'Instrument Serif',Georgia,serif;font-style:italic;font-size:20px;color:#f7f5f0">En mantenimiento</div>
+    <div id="maint-msg" style="margin-top:10px;font-size:12px;color:rgba(247,245,240,.55);line-height:1.6;max-width:280px"></div>
+    <button class="login-back" style="margin-top:20px" onclick="location.reload()">↻ Reintentar</button>
+  </div>
 </div>
 
 <div id="app" style="display:none;flex-direction:column;height:100vh">
@@ -217,10 +229,17 @@ function backToProfiles(){
 function doLogin(){
   if(!chosenProfile)return;
   var pwd=document.getElementById('login-pwd').value;
-  sha256(pwd).then(function(hash){
+  sha256(pwd).then(async function(hash){
     if(hash===chosenProfile.hash){
       sessionStorage.setItem('panel_role',chosenProfile.role);
       sessionStorage.setItem('panel_user',chosenProfile.name);
+      var maint=await getMaintenance();
+      if(maint && maint.activo && chosenProfile.role!=='admin'){
+        document.getElementById('login-screen').style.display='none';
+        document.getElementById('maint-msg').textContent=maint.mensaje||'El equipo está haciendo cambios en el sistema. Volvé a intentar en un rato.';
+        document.getElementById('maint-screen').style.display='flex';
+        return;
+      }
       logActivity(chosenProfile.role,chosenProfile.name,'login','Inicio de sesión');
       goHome();
     }else{
@@ -228,6 +247,42 @@ function doLogin(){
       document.getElementById('login-pwd').value='';
     }
   });
+}
+
+async function getMaintenance(){
+  try{
+    var r=await fetch('https://api.jsonbin.io/v3/b/'+CAMPANAS_BIN+'/latest',{headers:{'X-Master-Key':API_KEY}});
+    if(!r.ok) return null;
+    var rec=(await r.json()).record||{};
+    return rec.mantenimiento||null;
+  }catch(e){ console.error('getMaintenance error',e); return null; }
+}
+async function toggleMaintenance(){
+  var maint=await getMaintenance();
+  var activo=!(maint&&maint.activo);
+  var mensaje='';
+  if(activo){
+    mensaje=prompt('Mensaje para el equipo (opcional):','Estamos actualizando el panel, volvé a entrar en un rato.')||'';
+  }
+  try{
+    var r=await fetch('https://api.jsonbin.io/v3/b/'+CAMPANAS_BIN+'/latest',{headers:{'X-Master-Key':API_KEY}});
+    var rec=r.ok?(await r.json()).record||{}:{};
+    rec.mantenimiento={activo:activo,mensaje:mensaje,por:sessionStorage.getItem('panel_user')||'',fecha:new Date().toISOString()};
+    await fetch('https://api.jsonbin.io/v3/b/'+CAMPANAS_BIN,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':API_KEY},body:JSON.stringify(rec)});
+    logActivity('admin',sessionStorage.getItem('panel_user'),'mantenimiento',activo?'Activó el modo mantenimiento':'Desactivó el modo mantenimiento');
+    renderMaintToggle();
+  }catch(e){ alert('No se pudo guardar el cambio. Probá de nuevo.'); console.error(e); }
+}
+async function renderMaintToggle(){
+  var role=sessionStorage.getItem('panel_role');
+  var box=document.getElementById('maint-admin-toggle');
+  if(!box) return;
+  if(role!=='admin'){ box.innerHTML=''; return; }
+  box.innerHTML='<div style="font-size:10px;color:#9a9286">Verificando modo mantenimiento...</div>';
+  var maint=await getMaintenance();
+  var activo=maint&&maint.activo;
+  box.innerHTML='<button class="home-logout" style="text-decoration:none;border:1px solid '+(activo?'#c0392b':'#d9d4c9')+';border-radius:20px;padding:6px 14px;color:'+(activo?'#c0392b':'#9a9286')+'" onclick="toggleMaintenance()">'
+    +(activo?'⛔ Mantenimiento activo — tocar para desactivar':'🔧 Activar modo mantenimiento')+'</button>';
 }
 
 function doLogout(){
@@ -247,6 +302,7 @@ function goHome(){
   document.getElementById('app').style.display='none';
   document.getElementById('home-screen').classList.add('active');
   document.getElementById('home-welcome').textContent=user?('Hola, '+user):'';
+  renderMaintToggle();
 
   var tiles=[
     {id:'calendario',icon:'◫',label:'Calendario',sub:'Planificación mensual'},
