@@ -1638,7 +1638,26 @@ function openImportMeta(){
 }
 function closeImportMeta(){document.getElementById('mod-import-meta').classList.remove('on');}
 
+function repairDoubleQuotedCSV(text){
+  // Algunos exports (ej. vía Gmail/Sheets) vienen con cada línea entera
+  // envuelta en un par de comillas extra, y las comillas originales
+  // dobladas ("" en vez de "). Esto la deshace, línea por línea.
+  const lines=text.split(/\r\n|\n/);
+  const fixed=lines.map(function(line){
+    if(line.length>=2 && line[0]==='"' && line[line.length-1]==='"'){
+      return line.slice(1,-1).replace(/""/g,'"');
+    }
+    return line;
+  });
+  return fixed.join('\n');
+}
+
 function parseCSV(text){
+  window._csvFueReparado=false;
+  if(text.trimStart().startsWith('"') && text.trimStart()[1]!=='"'){
+    text=repairDoubleQuotedCSV(text);
+    window._csvFueReparado=true;
+  }
   // Parser simple de CSV con soporte de campos entre comillas (incluye comillas escapadas "")
   const rows=[]; let row=[]; let field=''; let inQuotes=false;
   for(let i=0;i<text.length;i++){
@@ -1682,6 +1701,9 @@ function handleMetaCSV(file){
       filas=esExcel?parseExcelMeta(e.target.result):parseCSV(e.target.result);
     }
     catch(err){ body.innerHTML+='<p style="color:var(--red);font-size:12px">No se pudo leer el archivo: '+err.message+'</p>'; return; }
+    if(window._csvFueReparado){
+      body.insertAdjacentHTML('beforeend','<p style="font-size:11px;color:var(--gold);margin-top:6px">⚠ El archivo venía con un formato mal exportado (comillas dobles) — se corrigió automáticamente. Si algo se ve raro, mejor volvé a bajarlo directo de Meta Ads Manager.</p>');
+    }
     procesarFilasMeta(filas);
   };
   if(esExcel) reader.readAsArrayBuffer(file);
