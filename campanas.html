@@ -159,6 +159,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       <div class="ph"><h1 class="pt">Campañas</h1>
         <div class="pa">
           <button class="btn" onclick="openImport()">↓ Importar del Calendario</button>
+          <button class="btn" onclick="openImportMeta()">↑ Importar desde Meta</button>
           <button class="btn btn-ink" onclick="newCamp()">+ Nueva</button>
         </div>
       </div>
@@ -280,6 +281,14 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   </div>
 </div>
 
+<!-- IMPORT META MODAL -->
+<div class="mbg" id="mod-import-meta">
+  <div class="modal" style="max-width:820px">
+    <div class="mh"><div class="mt2">↑ Importar gasto real desde Meta</div><button class="btn btn-sm" onclick="closeImportMeta()">✕</button></div>
+    <div class="mb2" id="import-meta-body"></div>
+  </div>
+</div>
+
 <!-- AI MODAL -->
 <div class="mbg" id="mod-ai">
   <div class="modal" style="max-width:760px">
@@ -374,7 +383,13 @@ async function syncLoad(){
 async function syncSave(){
   ss2('saving','Guardando...');
   try{
-    var r=await fetch('https://api.jsonbin.io/v3/b/'+BIN_ID,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':API_KEY},body:JSON.stringify(G)});
+    var cur={};
+    try{
+      var rGet=await fetch('https://api.jsonbin.io/v3/b/'+BIN_ID+'/latest',{headers:{'X-Master-Key':API_KEY}});
+      if(rGet.ok)cur=(await rGet.json()).record||{};
+    }catch(e){/* si falla la lectura previa, seguimos con cur vacío */}
+    var merged=Object.assign({},cur,G);
+    var r=await fetch('https://api.jsonbin.io/v3/b/'+BIN_ID,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':API_KEY},body:JSON.stringify(merged)});
     if(!r.ok)throw new Error(r.status);
     ss2('ok','Guardado · '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}));
   }catch(e){ss2('err','Error al guardar');console.error(e);}
@@ -557,6 +572,9 @@ function renderForm(){
     +'</div>'
     +'<div class="field"><label>Código</label>'
     +'<div style="display:flex;gap:6px"><input type="text" id="f-codigo" value="'+v('codigo','')+'" placeholder="Auto..."><button class="btn btn-xs" type="button" onclick="updateCode(true)">↺</button></div></div>'
+    +'<div class="field"><label>Nombre de campaña (Meta)</label>'
+    +'<input type="text" id="f-meta-nombre" value="'+v('metaNombre','')+'" placeholder="Igual al nombre en Meta Ads Manager">'
+    +'<span class="fhint">Copialo tal cual aparece en Meta Ads Manager. A partir de ahora, cargalo siempre — es lo que permite importar el gasto y los leads automáticamente.</span></div>'
     +'<div class="field"><label>Fecha inicio planificada</label>'
     +'<input type="date" id="f-fecha-plan" value="'+(c?v('fechaPlan',v('fecha',today)):'')+'" onchange="this.dataset.locked=\'1\';calcDesvio()">'
     +'<span class="fhint">Del calendario. Se sincroniza con fecha de inicio.</span></div>'
@@ -758,7 +776,7 @@ function submitForm(){
     id:editId||('c'+Date.now()),
     fechaCarga:fechaCarga,
     fecha:fecha,mes:d.getMonth(),anio:d.getFullYear(),
-    producto:prod,tipo:tipo,modo:gv('f-modo'),codigo:cod,
+    producto:prod,tipo:tipo,modo:gv('f-modo'),codigo:cod,metaNombre:gv('f-meta-nombre'),
     fechaPlan:gv('f-fecha-plan'),fechaReal:gv('f-fecha-real'),
     budDia:gn('f-bud-dia'),budDias:gn('f-bud-dias'),budTotal:gn('f-bud-total'),
     effDia:gn('f-eff-dia'),effDias:gn('f-eff-dias'),effTotal:gn('f-eff-total'),
@@ -1604,6 +1622,256 @@ async function runAI(){
 // ── IMPORT FROM CALENDAR ─────────────────────────────
 function openImport(){document.getElementById('mod-import').classList.add('on');document.getElementById('import-body').innerHTML='<p style="font-size:12px;color:var(--dim)">Cargando...</p>';loadCalData();}
 function closeImport(){document.getElementById('mod-import').classList.remove('on');}
+
+// ── IMPORTAR DESDE META (CSV) ──────────────────────────
+let metaImportRows=[]; // filas parseadas + matcheo, listas para aplicar
+
+function openImportMeta(){
+  document.getElementById('mod-import-meta').classList.add('on');
+  metaImportRows=[];
+  document.getElementById('import-meta-body').innerHTML=
+    '<p style="font-size:12px;color:var(--dim);margin-bottom:12px">'
+    +'Subí el CSV que exportás desde Meta Ads Manager (Campañas → Exportar → CSV). '
+    +'Se trae el <b>gasto real</b> de Meta y, para campañas de Ingeniería, los <b>leads</b> se leen directo del sistema de Leads (no de Meta). '
+    +'Las campañas marcadas como <b>doble versión</b> quedan siempre afuera de esta importación — esas se cargan a mano.</p>'
+    +'<input type="file" id="meta-csv-input" accept=".csv" onchange="handleMetaCSV(this.files[0])">';
+}
+function closeImportMeta(){document.getElementById('mod-import-meta').classList.remove('on');}
+
+function parseCSV(text){
+  // Parser simple de CSV con soporte de campos entre comillas (incluye comillas escapadas "")
+  const rows=[]; let row=[]; let field=''; let inQuotes=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i], next=text[i+1];
+    if(inQuotes){
+      if(c==='"' && next==='"'){ field+='"'; i++; }
+      else if(c==='"'){ inQuotes=false; }
+      else field+=c;
+    } else {
+      if(c==='"') inQuotes=true;
+      else if(c===','){ row.push(field); field=''; }
+      else if(c==='\r'){ /* ignorar */ }
+      else if(c==='\n'){ row.push(field); rows.push(row); row=[]; field=''; }
+      else field+=c;
+    }
+  }
+  if(field.length || row.length){ row.push(field); rows.push(row); }
+  if(!rows.length) return [];
+  const headers=rows[0];
+  return rows.slice(1).filter(function(r){ return r.length>1; }).map(function(r){
+    const o={};
+    headers.forEach(function(h,i){ o[h]=r[i]!==undefined?r[i]:''; });
+    return o;
+  });
+}
+
+const LEADS_SOURCES_IMPORT=[
+  {id:'ing', label:'Ingeniería', url:'https://script.google.com/macros/s/AKfycbzU2GRxL87N47Jf0QMMBXy_2xZe98DBP-vbZSYnvXtE92c-4mqX8jveI-jxrogRPolS6g/exec?key=geo2026panel'},
+  {id:'agro', label:'AGRO', url:'https://script.google.com/macros/s/AKfycbyMoVCD8aapFbR4kCgC_G-fQjU5Aye9rR7LZbxPraecsHqGzK02A5n2kdUCqylZcSBw/exec?key=geo2026panel'}
+];
+
+function handleMetaCSV(file){
+  if(!file) return;
+  const body=document.getElementById('import-meta-body');
+  body.insertAdjacentHTML('beforeend','<p style="font-size:12px;color:var(--dim);margin-top:10px" id="import-status">Leyendo archivo...</p>');
+  const reader=new FileReader();
+  reader.onload=function(e){
+    let filas;
+    try{ filas=parseCSV(e.target.result); }
+    catch(err){ body.innerHTML+='<p style="color:var(--red);font-size:12px">No se pudo leer el archivo: '+err.message+'</p>'; return; }
+    procesarFilasMeta(filas);
+  };
+  reader.readAsText(file,'UTF-8');
+}
+
+async function procesarFilasMeta(filas){
+  const statusEl=document.getElementById('import-status');
+  if(statusEl) statusEl.textContent='Cruzando con el sistema de Leads (Ingeniería)...';
+
+  // Traemos los leads de Ingeniería en vivo, para cruzar por nombre de hoja/campaña.
+  // AGRO queda afuera de este cruce automático: ahí los leads se agrupan por
+  // producto y no por campaña individual, así que asignarlos de forma automática
+  // podría contar de más si hay varias campañas del mismo producto.
+  let ingLeadsMap={};
+  try{
+    const r=await fetch(LEADS_SOURCES_IMPORT[0].url);
+    const j=await r.json();
+    (j.campanas||[]).forEach(function(c){
+      if(!c.total) return;
+      ingLeadsMap[(c.hoja||'').trim().toLowerCase()]={
+        total:c.total, porPrioridad:c.porPrioridad||{}
+      };
+    });
+  }catch(e){ console.error('No se pudo leer Leads de Ingeniería', e); }
+
+  const util=filas.filter(function(f){
+    const gasto=parseFloat((f['Importe gastado (USD)']||'0').replace(',','.'));
+    return f['Nombre de la campaña'] && gasto>0;
+  });
+
+  // Campañas existentes que NO son doble versión (esas quedan siempre afuera)
+  const candidatas=G.campaigns.filter(function(c){ return !c.dobleVersion; });
+
+  metaImportRows=util.map(function(f){
+    const nombreMeta=(f['Nombre de la campaña']||'').trim();
+    const gasto=parseFloat((f['Importe gastado (USD)']||'0').replace(',','.'));
+    const fin=f['Finalización']&&f['Finalización']!=='1969-12-31'?f['Finalización']:'';
+    const match=candidatas.find(function(c){
+      return c.metaNombre && c.metaNombre.trim().toLowerCase()===nombreMeta.toLowerCase();
+    });
+    const leadsInfo=ingLeadsMap[nombreMeta.toLowerCase()]||null;
+    let effDiasCalc=null;
+    if(match && match.fechaReal && fin){
+      const d1=new Date(match.fechaReal+'T00:00:00'), d2=new Date(fin+'T00:00:00');
+      const dias=Math.round((d2-d1)/86400000)+1;
+      if(dias>0) effDiasCalc=dias;
+    }
+    return {
+      nombreMeta:nombreMeta, gasto:gasto, fin:fin,
+      campId: match?match.id:null,
+      esNueva: !match,
+      leadsInfo:leadsInfo,
+      effDiasCalc: effDiasCalc,
+      producto:'', tipo:'META',
+      aplicar:true
+    };
+  });
+
+  renderImportMetaTable();
+}
+
+function renderImportMetaTable(){
+  const body=document.getElementById('import-meta-body');
+  if(!metaImportRows.length){
+    body.innerHTML='<p style="font-size:12px;color:var(--dim);margin-top:10px">El archivo no tiene filas con gasto mayor a $0 para importar.</p>';
+    return;
+  }
+  const opcionesCamp=candidatasSelect();
+  const opcionesProd=G.products.map(function(p){ return '<option value="'+p.id+'">'+p.name+' ('+p.area+')</option>'; }).join('');
+  const opcionesTipo=G.tipos.map(function(t){ return '<option value="'+t.id+'">'+t.name+'</option>'; }).join('');
+
+  const nMatch=metaImportRows.filter(function(r){return r.campId;}).length;
+  const nNuevas=metaImportRows.filter(function(r){return r.esNueva;}).length;
+  const nLeads=metaImportRows.filter(function(r){return r.leadsInfo;}).length;
+
+  let html='<div style="overflow-x:auto;margin-top:14px"><table class="dt"><thead><tr>'
+    +'<th></th><th>Campaña (Meta)</th><th>Vinculada a / Crear como</th><th style="text-align:right">Gasto</th><th style="text-align:right">Leads (Sheets)</th>'
+    +'</tr></thead><tbody>';
+
+  metaImportRows.forEach(function(r,i){
+    const camp=r.campId?G.campaigns.find(function(c){return c.id===r.campId;}):null;
+    let vinculoHTML;
+    if(camp){
+      vinculoHTML='<span style="font-size:11px">'+camp.codigo+' <span style="color:var(--dim)">(actualizar)</span></span>';
+    } else {
+      vinculoHTML='<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">'
+        +'<select class="fs" style="font-size:10px" onchange="metaImportRows['+i+'].producto=this.value">'
+        +'<option value="">Producto...</option>'+opcionesProd+'</select>'
+        +'<select class="fs" style="font-size:10px" onchange="metaImportRows['+i+'].tipo=this.value">'
+        +opcionesTipo+'</select>'
+        +'<span style="font-size:9px;color:var(--dim)">(nueva)</span>'
+        +'</div>'
+        +'<select class="fs" style="font-size:10px;margin-top:4px" onchange="vincularExistente('+i+',this.value)">'
+        +'<option value="">— o vincular a una existente —</option>'+opcionesCamp+'</select>';
+    }
+    const leadsTxt=r.leadsInfo
+      ? r.leadsInfo.total+' <span style="color:var(--dim)">(A'+(r.leadsInfo.porPrioridad.ALTA||0)+'/M'+(r.leadsInfo.porPrioridad.MEDIA||0)+'/B'+(r.leadsInfo.porPrioridad.BAJA||0)+'/D'+(r.leadsInfo.porPrioridad.DESCARTAR||0)+')</span>'
+      : '<span style="color:var(--faint)">—</span>';
+    html+='<tr>'
+      +'<td><input type="checkbox" '+(r.aplicar?'checked':'')+' onchange="metaImportRows['+i+'].aplicar=this.checked"></td>'
+      +'<td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+r.nombreMeta+'">'+r.nombreMeta+'</td>'
+      +'<td>'+vinculoHTML+'</td>'
+      +'<td style="text-align:right;font-size:11px;font-weight:500">'+fmt(r.gasto)+(r.effDiasCalc?' <span style="color:var(--dim);font-weight:400">('+r.effDiasCalc+'d)</span>':'')+'</td>'
+      +'<td style="text-align:right;font-size:11px">'+leadsTxt+'</td>'
+      +'</tr>';
+  });
+  html+='</tbody></table></div>'
+    +'<p class="fhint" style="margin-top:8px">Los leads solo se traen automáticamente para campañas de Ingeniería que coinciden por nombre exacto con la hoja de Sheets. AGRO y las que no matchean quedan con Leads vacío, para cargar a mano.</p>'
+    +'<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">'
+    +'<button class="btn" onclick="closeImportMeta()">Cancelar</button>'
+    +'<button class="btn btn-ink" onclick="aplicarImportMeta()">Aplicar cambios</button>'
+    +'</div>';
+  body.innerHTML =
+    '<p style="font-size:12px;color:var(--dim);margin-bottom:6px">'
+    +'Se encontraron <b>'+metaImportRows.length+'</b> campañas con gasto en el archivo · '
+    +nMatch+' vinculadas automáticamente · '+nNuevas+' se crearían nuevas · '+nLeads+' con leads de Sheets.</p>'
+    +html;
+}
+
+function candidatasSelect(){
+  return G.campaigns.filter(function(c){ return !c.dobleVersion; })
+    .map(function(c){ return '<option value="'+c.id+'">'+c.codigo+' — '+(pName(c.producto)||'?')+'</option>'; }).join('');
+}
+function vincularExistente(i,campId){
+  metaImportRows[i].campId=campId||null;
+  metaImportRows[i].esNueva=!campId;
+  metaImportRows[i].aplicar=true;
+  renderImportMetaTable();
+}
+
+function aplicarImportMeta(){
+  const aplicar=metaImportRows.filter(function(r){ return r.aplicar; });
+  const actualizar=aplicar.filter(function(r){ return r.campId; });
+  const crear=aplicar.filter(function(r){ return !r.campId; });
+
+  const crearInvalidas=crear.filter(function(r){ return !r.producto || !r.tipo; });
+  if(crearInvalidas.length){
+    alert('Hay '+crearInvalidas.length+' campaña(s) nueva(s) sin Producto y/o Tipo seleccionado. Completalas o desmarcalas antes de aplicar.');
+    return;
+  }
+  if(!aplicar.length){ alert('No hay ninguna fila lista para aplicar.'); return; }
+
+  actualizar.forEach(function(r){
+    const idx=G.campaigns.findIndex(function(c){ return c.id===r.campId; });
+    if(idx<0) return;
+    G.campaigns[idx].effTotal=r.gasto;
+    if(r.effDiasCalc){
+      G.campaigns[idx].effDias=r.effDiasCalc;
+      G.campaigns[idx].effDia=Math.round((r.gasto/r.effDiasCalc)*100)/100;
+    }
+    if(r.leadsInfo){
+      G.campaigns[idx].leads=r.leadsInfo.total;
+      G.campaigns[idx].leadsAlta=r.leadsInfo.porPrioridad.ALTA||0;
+      G.campaigns[idx].leadsMedia=r.leadsInfo.porPrioridad.MEDIA||0;
+      G.campaigns[idx].leadsBaja=r.leadsInfo.porPrioridad.BAJA||0;
+    }
+    G.campaigns[idx].updatedAt=new Date().toISOString();
+  });
+
+  crear.forEach(function(r){
+    const fecha=r.fin||new Date().toISOString().slice(0,10);
+    const d=new Date(fecha+'T00:00:00');
+    const codigo=genCode(r.producto,r.tipo,fecha)||('IMP-'+Date.now());
+    const camp={
+      id:'c'+Date.now()+Math.random().toString(36).slice(2,6),
+      fechaCarga:new Date().toISOString().slice(0,10),
+      fecha:fecha, mes:d.getMonth(), anio:d.getFullYear(),
+      producto:r.producto, tipo:r.tipo, modo:'', codigo:codigo, metaNombre:r.nombreMeta,
+      fechaPlan:'', fechaReal:'',
+      budDia:null,budDias:null,budTotal:null,
+      effDia:r.effDiasCalc?Math.round((r.gasto/r.effDiasCalc)*100)/100:null,
+      effDias:r.effDiasCalc||null, effTotal:r.gasto,
+      leads:r.leadsInfo?r.leadsInfo.total:null,
+      leadsAlta:r.leadsInfo?(r.leadsInfo.porPrioridad.ALTA||0):null,
+      leadsMedia:r.leadsInfo?(r.leadsInfo.porPrioridad.MEDIA||0):null,
+      leadsBaja:r.leadsInfo?(r.leadsInfo.porPrioridad.BAJA||0):null,
+      wpp:null,
+      mailProvTipo:'',mailProv:'',mailEnviados:null,mailApertura:null,mailClicks:null,
+      sinLeads:false, segmentacion:'', dobleVersion:false, versiones:[], comments:[],
+      notas:'Importada masivamente desde Meta el '+new Date().toLocaleDateString('es-AR'),
+      media:[], updatedAt:new Date().toISOString()
+    };
+    G.campaigns.unshift(camp);
+  });
+
+  logActivity('import_meta','Importación masiva de Meta: '+actualizar.length+' actualizadas, '+crear.length+' creadas');
+  syncSave();
+  closeImportMeta();
+  renderLista();
+  if(document.getElementById('page-dashboard').classList.contains('on')) renderDash();
+  alert('Listo: '+actualizar.length+' campaña(s) actualizadas y '+crear.length+' creadas.');
+}
+
 document.getElementById('mod-import').onclick=function(e){if(e.target===e.currentTarget)closeImport();};
 
 async function loadCalData(){
