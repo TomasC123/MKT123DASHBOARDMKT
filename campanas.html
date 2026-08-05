@@ -1631,10 +1631,10 @@ function openImportMeta(){
   metaImportRows=[];
   document.getElementById('import-meta-body').innerHTML=
     '<p style="font-size:12px;color:var(--dim);margin-bottom:12px">'
-    +'Subí el CSV que exportás desde Meta Ads Manager (Campañas → Exportar → CSV). '
+    +'Subí el CSV que exportás desde Meta Ads Manager (Campañas → Exportar → CSV) — <b>recomendado</b>, es el que mejor funciona. También acepta Excel (.xlsx) si lo bajaste así. '
     +'Se trae el <b>gasto real</b> de Meta y, para campañas de Ingeniería, los <b>leads</b> se leen directo del sistema de Leads (no de Meta). '
     +'Las campañas marcadas como <b>doble versión</b> quedan siempre afuera de esta importación — esas se cargan a mano.</p>'
-    +'<input type="file" id="meta-csv-input" accept=".csv" onchange="handleMetaCSV(this.files[0])">';
+    +'<input type="file" id="meta-csv-input" accept=".csv,.xlsx,.xls" onchange="handleMetaCSV(this.files[0])">';
 }
 function closeImportMeta(){document.getElementById('mod-import-meta').classList.remove('on');}
 
@@ -1674,14 +1674,31 @@ function handleMetaCSV(file){
   if(!file) return;
   const body=document.getElementById('import-meta-body');
   body.insertAdjacentHTML('beforeend','<p style="font-size:12px;color:var(--dim);margin-top:10px" id="import-status">Leyendo archivo...</p>');
+  const esExcel=/\.xlsx?$/i.test(file.name);
   const reader=new FileReader();
   reader.onload=function(e){
     let filas;
-    try{ filas=parseCSV(e.target.result); }
+    try{
+      filas=esExcel?parseExcelMeta(e.target.result):parseCSV(e.target.result);
+    }
     catch(err){ body.innerHTML+='<p style="color:var(--red);font-size:12px">No se pudo leer el archivo: '+err.message+'</p>'; return; }
     procesarFilasMeta(filas);
   };
-  reader.readAsText(file,'UTF-8');
+  if(esExcel) reader.readAsArrayBuffer(file);
+  else reader.readAsText(file,'UTF-8');
+}
+
+function parseExcelMeta(arrayBuffer){
+  const wb=XLSX.read(arrayBuffer,{type:'array'});
+  const ws=wb.Sheets[wb.SheetNames[0]];
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+  if(!aoa.length) return [];
+  const headers=aoa[0].map(function(h){ return String(h||'').trim(); });
+  return aoa.slice(1).filter(function(r){ return r.length>1; }).map(function(r){
+    const o={};
+    headers.forEach(function(h,i){ o[h]=r[i]!==undefined?String(r[i]):''; });
+    return o;
+  });
 }
 
 async function procesarFilasMeta(filas){
