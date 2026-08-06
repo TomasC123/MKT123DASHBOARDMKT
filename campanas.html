@@ -573,12 +573,8 @@ function renderForm(){
     +'<div class="field"><label>Código</label>'
     +'<div style="display:flex;gap:6px"><input type="text" id="f-codigo" value="'+v('codigo','')+'" placeholder="Auto..."><button class="btn btn-xs" type="button" onclick="updateCode(true)">↺</button></div></div>'
     +'<div class="field"><label>Nombre de campaña (Meta)</label>'
-    +'<input type="text" id="f-meta-nombre" value="'+v('metaNombre','')+'" placeholder="Igual al nombre en Meta Ads Manager" oninput="onMetaNombreInput()">'
+    +'<input type="text" id="f-meta-nombre" value="'+v('metaNombre','')+'" placeholder="Igual al nombre en Meta Ads Manager">'
     +'<span class="fhint">Copialo tal cual aparece en Meta Ads Manager. A partir de ahora, cargalo siempre — es lo que permite importar el gasto y los leads automáticamente.</span></div>'
-    +'<div class="field"><label>Columna del Calendario</label>'
-    +'<select id="f-cal-producto" onchange="onCalProductoChange(true)"><option value="">Sin vincular</option></select>'
-    +'<span class="fhint" id="cal-match-hint"></span>'
-    +'<button type="button" class="btn btn-xs" style="margin-top:6px" onclick="calcularPresupuestoDesdeCalendario()">↺ Calcular presupuesto desde Calendario</button></div>'
     +'<div class="field"><label>Fecha inicio planificada</label>'
     +'<input type="date" id="f-fecha-plan" value="'+(c?v('fechaPlan',v('fecha',today)):'')+'" onchange="this.dataset.locked=\'1\';calcDesvio()">'
     +'<span class="fhint">Del calendario. Se sincroniza con fecha de inicio.</span></div>'
@@ -673,116 +669,6 @@ function renderForm(){
 
   document.getElementById('form-content').innerHTML=html;
   calcDesvio();
-  initCalProductoField(editId?G.campaigns.find(function(x){return x.id===editId;}):null);
-}
-
-// ── VINCULACIÓN CON EL CALENDARIO ──────────────────────
-const CAL_BIN_ID='69e68df036566621a8d3ca66';
-let calBinCache=null; // {products, campaigns, calendars}
-
-async function loadCalBin(force){
-  if(calBinCache && !force) return calBinCache;
-  try{
-    const r=await fetch('https://api.jsonbin.io/v3/b/'+CAL_BIN_ID+'/latest',{headers:{'X-Master-Key':API_KEY}});
-    if(!r.ok) throw new Error(r.status);
-    const rec=(await r.json()).record||{};
-    calBinCache={products:rec.products||[], campaigns:rec.campaigns||[], calendars:rec.calendars||{}};
-  }catch(e){ console.error('No se pudo leer el Calendario', e); calBinCache={products:[],campaigns:[],calendars:{}}; }
-  return calBinCache;
-}
-
-function normTxt(s){
-  return String(s||'').toUpperCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g,'') // saca acentos
-    .replace(/[^A-Z0-9\s]/g,' ')
-    .replace(/\s+/g,' ').trim();
-}
-const STOPWORDS_CAL=['Y','DE','DEL','LA','EL','LOS','LAS','CON','EN','A','PARA'];
-
-function fuzzyMatchCalProducto(texto, productos){
-  const palabrasTexto=normTxt(texto).split(' ').filter(function(w){return w.length>=3 && STOPWORDS_CAL.indexOf(w)<0;});
-  if(!palabrasTexto.length || !productos.length) return null;
-  let mejor=null, mejorScore=0;
-  productos.forEach(function(p){
-    const palabrasProd=normTxt(p.name).split(' ').filter(function(w){return w.length>=3 && STOPWORDS_CAL.indexOf(w)<0;});
-    if(!palabrasProd.length) return;
-    const matches=palabrasProd.filter(function(w){return palabrasTexto.indexOf(w)>=0;}).length;
-    const score=matches/palabrasProd.length;
-    if(score>mejorScore){ mejorScore=score; mejor=p; }
-  });
-  return (mejor && mejorScore>=0.5) ? {producto:mejor, score:mejorScore} : null;
-}
-
-async function initCalProductoField(campExistente){
-  const sel=document.getElementById('f-cal-producto');
-  const hint=document.getElementById('cal-match-hint');
-  if(!sel) return;
-  const cal=await loadCalBin();
-  sel.innerHTML='<option value="">Sin vincular</option>'+cal.products.map(function(p){
-    return '<option value="'+p.id+'">'+p.name+' ('+p.area+')</option>';
-  }).join('');
-
-  if(campExistente && campExistente.calProducto){
-    sel.value=campExistente.calProducto;
-    return;
-  }
-  // Campaña nueva: sugerir por parecido de nombre (usa Meta si ya está cargado, si no el Producto)
-  const textoBase=gv('f-meta-nombre')||pName(gv('f-producto'));
-  const match=fuzzyMatchCalProducto(textoBase, cal.products);
-  if(match){
-    sel.value=match.producto.id;
-    if(hint) hint.innerHTML='<span style="color:var(--gold)">⚠ Vinculado automáticamente a "'+match.producto.name+'" por parecido de nombre — revisá que sea correcto.</span>';
-  }
-}
-function onMetaNombreInput(){
-  // Reintentar la sugerencia automática si todavía no se vinculó nada a mano
-  const sel=document.getElementById('f-cal-producto');
-  if(sel && !sel.value && calBinCache){
-    const match=fuzzyMatchCalProducto(gv('f-meta-nombre'), calBinCache.products);
-    const hint=document.getElementById('cal-match-hint');
-    if(match){
-      sel.value=match.producto.id;
-      if(hint) hint.innerHTML='<span style="color:var(--gold)">⚠ Vinculado automáticamente a "'+match.producto.name+'" por parecido de nombre — revisá que sea correcto.</span>';
-    }
-  }
-}
-function onCalProductoChange(manual){
-  const hint=document.getElementById('cal-match-hint');
-  if(manual && hint) hint.textContent='';
-}
-
-function calcularPresupuestoParaProducto(cal,pid){
-  let totalBudget=0, totalDias=0;
-  Object.keys(cal.calendars).forEach(function(key){
-    const parts=key.split('-');
-    const year=parseInt(parts[0]), month=parseInt(parts[1]);
-    if(isNaN(year)||isNaN(month)) return;
-    const dias=new Date(year,month+1,0).getDate();
-    const cells=(cal.calendars[key]||{}).cells||{};
-    for(let d=1; d<=dias; d++){
-      const k=year+'-'+month+'-'+d+'-'+pid;
-      const tipoId=cells[k];
-      if(!tipoId) continue;
-      const tipo=cal.campaigns.find(function(t){return t.id===tipoId;});
-      if(tipo){ totalBudget+=(tipo.budget||0); totalDias++; }
-    }
-  });
-  return {dias:totalDias, total:totalBudget};
-}
-
-async function calcularPresupuestoDesdeCalendario(){
-  const pid=gv('f-cal-producto');
-  if(!pid){ alert('Primero elegí una columna del Calendario para vincular.'); return; }
-  const diasEl=document.getElementById('f-bud-dias'), totEl=document.getElementById('f-bud-total');
-  if((diasEl.value || totEl.value) && !confirm('Ya hay un presupuesto planificado cargado. ¿Reemplazarlo con lo calculado desde el Calendario?')) return;
-
-  const cal=await loadCalBin(true);
-  const res=calcularPresupuestoParaProducto(cal,pid);
-  if(!res.dias){ alert('No se encontraron días asignados a esta columna en el Calendario.'); return; }
-  diasEl.value=res.dias;
-  totEl.value=res.total;
-  calcBudget('bud');
-  alert('Presupuesto calculado: '+res.dias+' días × tarifas del Calendario = $'+res.total.toLocaleString());
 }
 
 function renderVersionesList(){
@@ -890,7 +776,7 @@ function submitForm(){
     id:editId||('c'+Date.now()),
     fechaCarga:fechaCarga,
     fecha:fecha,mes:d.getMonth(),anio:d.getFullYear(),
-    producto:prod,tipo:tipo,modo:gv('f-modo'),codigo:cod,metaNombre:gv('f-meta-nombre'),calProducto:gv('f-cal-producto'),
+    producto:prod,tipo:tipo,modo:gv('f-modo'),codigo:cod,metaNombre:gv('f-meta-nombre'),
     fechaPlan:gv('f-fecha-plan'),fechaReal:gv('f-fecha-real'),
     budDia:gn('f-bud-dia'),budDias:gn('f-bud-dias'),budTotal:gn('f-bud-total'),
     effDia:gn('f-eff-dia'),effDias:gn('f-eff-dias'),effTotal:gn('f-eff-total'),
@@ -974,7 +860,6 @@ function renderLista(){
 async function openDetail(id){
   detailId=id;
   var c=G.campaigns.find(function(x){return x.id===id;});if(!c)return;
-  if(c.calProducto) await loadCalBin();
   var col=tColor(c.tipo),sc=campScore(c),dev=desvio(c);
   var cplV=cpl(c),wppV=cpcW(c),effV=effPct(c);
   var isMailing=c.tipo==='MAILING';
@@ -1031,7 +916,6 @@ async function openDetail(id){
     +'<div class="di"><div class="dlb">Tipo / Modo</div><div style="font-size:12px"><span style="display:inline-block;padding:1px 7px;border-radius:20px;font-size:10px;font-weight:500;background:'+rgba(col,.1)+';color:'+col+';border:1px solid '+rgba(col,.25)+'">'+c.tipo+'</span>'+(c.modo?' '+c.modo:'')+'</div></div>'
     +'<div class="di"><div class="dlb">F. planificada / real</div><div style="font-size:12px">'+fDate(c.fechaPlan)+' → '+fDate(c.fechaReal)+'</div></div>'
     +'<div class="di"><div class="dlb">Presup. / Efec.</div><div style="font-size:12px">'+fmt(c.budDia)+' × '+(c.budDias||'—')+' / '+fmt(c.effDia)+' × '+(c.effDias||'—')+'</div></div>'
-    +(c.calProducto?'<div class="di"><div class="dlb">Columna del Calendario</div><div style="font-size:12px">'+(calBinCache&&calBinCache.products.find(function(p){return p.id===c.calProducto;})?calBinCache.products.find(function(p){return p.id===c.calProducto;}).name:c.calProducto)+'</div></div>':'')
     +(isMailing
       ?'<div class="di"><div class="dlb">Proveedor</div><div style="font-size:12px">'+(c.mailProvTipo||'—')+(c.mailProv?' · '+c.mailProv:'')+'</div></div>'
       :'<div class="di"><div class="dlb">Leads</div><div style="font-family:var(--serif);font-size:22px">'+(c.leads!=null?c.leads:'—')+'</div></div>'
@@ -1859,8 +1743,6 @@ async function procesarFilasMeta(filas){
     });
   }catch(e){ console.error('No se pudo leer Leads de Ingeniería', e); }
 
-  const cal=await loadCalBin();
-
   const util=filas.filter(function(f){
     const gasto=parseFloat((f['Importe gastado (USD)']||'0').replace(',','.'));
     return f['Nombre de la campaña'] && gasto>0;
@@ -1877,7 +1759,6 @@ async function procesarFilasMeta(filas){
       return c.metaNombre && c.metaNombre.trim().toLowerCase()===nombreMeta.toLowerCase();
     });
     const leadsInfo=ingLeadsMap[nombreMeta.toLowerCase()]||null;
-    const calMatch=fuzzyMatchCalProducto(nombreMeta, cal.products);
     let effDiasCalc=null;
     if(match && match.fechaReal && fin){
       const d1=new Date(match.fechaReal+'T00:00:00'), d2=new Date(fin+'T00:00:00');
@@ -1888,8 +1769,6 @@ async function procesarFilasMeta(filas){
       nombreMeta:nombreMeta, gasto:gasto, fin:fin,
       campId: match?match.id:null,
       esNueva: !match,
-      calProductId: calMatch?calMatch.producto.id:'',
-      calProductAuto: !!calMatch,
       leadsInfo:leadsInfo,
       effDiasCalc: effDiasCalc,
       producto:'', tipo:'META',
@@ -1913,13 +1792,10 @@ function renderImportMetaTable(){
   const nMatch=metaImportRows.filter(function(r){return r.campId;}).length;
   const nNuevas=metaImportRows.filter(function(r){return r.esNueva;}).length;
   const nLeads=metaImportRows.filter(function(r){return r.leadsInfo;}).length;
-  const nCal=metaImportRows.filter(function(r){return r.calProductId;}).length;
 
   let html='<div style="overflow-x:auto;margin-top:14px"><table class="dt"><thead><tr>'
-    +'<th></th><th>Campaña (Meta)</th><th>Vinculada a / Crear como</th><th>Calendario</th><th style="text-align:right">Gasto</th><th style="text-align:right">Leads (Sheets)</th>'
+    +'<th></th><th>Campaña (Meta)</th><th>Vinculada a / Crear como</th><th style="text-align:right">Gasto</th><th style="text-align:right">Leads (Sheets)</th>'
     +'</tr></thead><tbody>';
-
-  const opcionesCal=calBinCache?calBinCache.products.map(function(p){return '<option value="'+p.id+'">'+p.name+'</option>';}).join(''):'';
 
   metaImportRows.forEach(function(r,i){
     const camp=r.campId?G.campaigns.find(function(c){return c.id===r.campId;}):null;
@@ -1937,9 +1813,6 @@ function renderImportMetaTable(){
         +'<select class="fs" style="font-size:10px;margin-top:4px" onchange="vincularExistente('+i+',this.value)">'
         +'<option value="">— o vincular a una existente —</option>'+opcionesCamp+'</select>';
     }
-    const calSelectHTML='<select class="fs" style="font-size:10px" onchange="metaImportRows['+i+'].calProductId=this.value">'
-      +'<option value="">Sin vincular</option>'+opcionesCal+'</select>'
-      +(r.calProductAuto?'<div style="font-size:9px;color:var(--gold);margin-top:2px">⚠ auto</div>':'');
     const leadsTxt=r.leadsInfo
       ? r.leadsInfo.total+' <span style="color:var(--dim)">(A'+(r.leadsInfo.porPrioridad.ALTA||0)+'/M'+(r.leadsInfo.porPrioridad.MEDIA||0)+'/B'+(r.leadsInfo.porPrioridad.BAJA||0)+'/D'+(r.leadsInfo.porPrioridad.DESCARTAR||0)+')</span>'
       : '<span style="color:var(--faint)">—</span>';
@@ -1947,7 +1820,6 @@ function renderImportMetaTable(){
       +'<td><input type="checkbox" '+(r.aplicar?'checked':'')+' onchange="metaImportRows['+i+'].aplicar=this.checked"></td>'
       +'<td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+r.nombreMeta+'">'+r.nombreMeta+'</td>'
       +'<td>'+vinculoHTML+'</td>'
-      +'<td>'+calSelectHTML+'</td>'
       +'<td style="text-align:right;font-size:11px;font-weight:500">'+fmt(r.gasto)+(r.effDiasCalc?' <span style="color:var(--dim);font-weight:400">('+r.effDiasCalc+'d)</span>':'')+'</td>'
       +'<td style="text-align:right;font-size:11px">'+leadsTxt+'</td>'
       +'</tr>';
@@ -1961,7 +1833,7 @@ function renderImportMetaTable(){
   body.innerHTML =
     '<p style="font-size:12px;color:var(--dim);margin-bottom:6px">'
     +'Se encontraron <b>'+metaImportRows.length+'</b> campañas con gasto en el archivo · '
-    +nMatch+' vinculadas automáticamente · '+nNuevas+' se crearían nuevas · '+nLeads+' con leads de Sheets · '+nCal+' con columna de Calendario sugerida.</p>'
+    +nMatch+' vinculadas automáticamente · '+nNuevas+' se crearían nuevas · '+nLeads+' con leads de Sheets.</p>'
     +html;
 }
 
@@ -1988,8 +1860,6 @@ async function aplicarImportMeta(){
   }
   if(!aplicar.length){ alert('No hay ninguna fila lista para aplicar.'); return; }
 
-  const cal=await loadCalBin(true);
-
   actualizar.forEach(function(r){
     const idx=G.campaigns.findIndex(function(c){ return c.id===r.campId; });
     if(idx<0) return;
@@ -2004,11 +1874,6 @@ async function aplicarImportMeta(){
       G.campaigns[idx].leadsMedia=r.leadsInfo.porPrioridad.MEDIA||0;
       G.campaigns[idx].leadsBaja=r.leadsInfo.porPrioridad.BAJA||0;
     }
-    // Solo vinculamos la columna de Calendario si esta campaña todavía no tenía una cargada
-    // (para no pisar un vínculo que ya se revisó/corrigió a mano antes).
-    if(r.calProductId && !G.campaigns[idx].calProducto){
-      G.campaigns[idx].calProducto=r.calProductId;
-    }
     G.campaigns[idx].updatedAt=new Date().toISOString();
   });
 
@@ -2016,16 +1881,13 @@ async function aplicarImportMeta(){
     const fecha=r.fin||new Date().toISOString().slice(0,10);
     const d=new Date(fecha+'T00:00:00');
     const codigo=genCode(r.producto,r.tipo,fecha)||('IMP-'+Date.now());
-    const presu=r.calProductId?calcularPresupuestoParaProducto(cal,r.calProductId):{dias:0,total:0};
     const camp={
       id:'c'+Date.now()+Math.random().toString(36).slice(2,6),
       fechaCarga:new Date().toISOString().slice(0,10),
       fecha:fecha, mes:d.getMonth(), anio:d.getFullYear(),
       producto:r.producto, tipo:r.tipo, modo:'', codigo:codigo, metaNombre:r.nombreMeta,
-      calProducto:r.calProductId||'',
       fechaPlan:'', fechaReal:'',
-      budDia:presu.dias?Math.round((presu.total/presu.dias)*100)/100:null,
-      budDias:presu.dias||null, budTotal:presu.dias?presu.total:null,
+      budDia:null, budDias:null, budTotal:null,
       effDia:r.effDiasCalc?Math.round((r.gasto/r.effDiasCalc)*100)/100:null,
       effDias:r.effDiasCalc||null, effTotal:r.gasto,
       leads:r.leadsInfo?r.leadsInfo.total:null,
@@ -2035,7 +1897,7 @@ async function aplicarImportMeta(){
       wpp:null,
       mailProvTipo:'',mailProv:'',mailEnviados:null,mailApertura:null,mailClicks:null,
       sinLeads:false, segmentacion:'', dobleVersion:false, versiones:[], comments:[],
-      notas:'Importada masivamente desde Meta el '+new Date().toLocaleDateString('es-AR')+(presu.dias?' · Presupuesto calculado desde el Calendario ('+presu.dias+' días)':''),
+      notas:'Importada masivamente desde Meta el '+new Date().toLocaleDateString('es-AR'),
       media:[], updatedAt:new Date().toISOString()
     };
     G.campaigns.unshift(camp);
@@ -2340,6 +2202,12 @@ function openVForm(){
     +'</select></div>'
     +'<div class="field"><label>Facturación ($)</label><input type="number" id="vf-monto" min="0" value="'+v('monto','')+'" placeholder="Monto en USD"></div>'
     +'<div class="field"><label>Campaña de origen</label><select id="vf-campana">'+campOpts+'</select></div>'
+    +'<div class="field"><label>Prioridad del lead de origen</label><select id="vf-lead-prioridad">'
+    +'<option value="">No aplica / desconocida</option>'
+    +['ALTA','MEDIA','BAJA','DESCARTAR'].map(function(p){return '<option value="'+p+'"'+(v('leadPrioridad','')===p?' selected':'')+'>'+p+'</option>';}).join('')
+    +'</select>'
+    +'<span class="fhint">Si esta venta vino de un lead ya calificado por la IA, marcá acá qué prioridad tenía.</span></div>'
+    +'<div class="field"><label>Nombre del lead (opcional)</label><input type="text" id="vf-lead-nombre" value="'+v('leadNombre','')+'" placeholder="Para trazabilidad, no hace falta exacto"></div>'
     +'<div class="field ffc"><label>Notas</label><input type="text" id="vf-notas" value="'+v('notas','')+'" placeholder="Observaciones..."></div>'
     +'</div>'
     +'<div style="display:flex;gap:10px;flex-wrap:wrap">'
@@ -2366,6 +2234,8 @@ function submitVenta(){
     tipoVenta:document.getElementById('vf-tipo').value,
     monto:monto,
     campanaId:document.getElementById('vf-campana').value,
+    leadPrioridad:document.getElementById('vf-lead-prioridad').value,
+    leadNombre:document.getElementById('vf-lead-nombre').value.trim(),
     notas:document.getElementById('vf-notas').value,
     updatedAt:new Date().toISOString()
   };
@@ -2451,10 +2321,11 @@ function renderVentas(){
   // Table
   html+='<div class="tw"><div style="overflow-x:auto"><table class="dt"><thead><tr>'
     +'<th>Fecha</th><th>Cliente</th><th>Producto</th><th>Tipo</th>'
-    +'<th style="text-align:right">Facturación</th><th>Campaña origen</th><th></th>'
+    +'<th style="text-align:right">Facturación</th><th>Campaña origen</th><th>Lead</th><th></th>'
     +'</tr></thead><tbody>'
     +vs.map(function(v){
       var camp=v.campanaId?G.campaigns.find(function(c){return c.id===v.campanaId;}):null;
+      var leadColors={ALTA:'var(--green)',MEDIA:'var(--gold)',BAJA:'var(--red)',DESCARTAR:'var(--faint)'};
       return '<tr>'
         +'<td style="color:var(--dim);font-size:11px">'+fDate(v.fecha)+'</td>'
         +'<td><strong style="font-size:12px">'+v.cliente+'</strong></td>'
@@ -2462,12 +2333,79 @@ function renderVentas(){
         +'<td style="font-size:11px">'+(v.tipoVenta?'<span style="padding:1px 7px;border-radius:20px;font-size:10px;background:'+(v.tipoVenta==='Nuevo'?'var(--bbg)':'var(--muted)')+';color:'+(v.tipoVenta==='Nuevo'?'var(--blue)':'var(--dim)')+'">'+v.tipoVenta+'</span>':'—')+'</td>'
         +'<td style="text-align:right;font-weight:500;color:var(--green)">'+(v.monto?'$'+v.monto.toLocaleString():'—')+'</td>'
         +'<td style="font-size:11px;color:var(--dim)">'+(camp?camp.codigo:'—')+'</td>'
+        +'<td>'+(v.leadPrioridad?'<span style="font-size:9px;font-weight:500;color:'+(leadColors[v.leadPrioridad]||'var(--dim)')+'">'+v.leadPrioridad+'</span>'+(v.leadNombre?' <span style="font-size:9px;color:var(--faint)">'+v.leadNombre+'</span>':''):'<span style="color:var(--faint)">—</span>')+'</td>'
         +'<td onclick="event.stopPropagation()"><button class="btn btn-xs" data-vid="'+v.id+'" onclick="editVenta(this.dataset.vid)">✎</button></td>'
         +'</tr>';
     }).join('')
     +'</tbody></table></div></div>';
 
   el.innerHTML=html;
+  renderConversionTasa(vs);
+}
+
+// ── TASA DE CONVERSIÓN REAL (Leads → Ventas) ─────────
+// Solo confiable para Ingeniería: ahí cada campaña de Meta coincide 1 a 1
+// con una hoja de Sheets, así que podemos saber cuántos leads ALTA/MEDIA/BAJA
+// tuvo esa campaña puntual. En AGRO los leads se agrupan por producto, no
+// por campaña individual, así que esta sección no los incluye.
+async function renderConversionTasa(vs){
+  var box=document.getElementById('ventas-conversion');
+  if(!box){
+    var el=document.getElementById('ventas-content');
+    if(!el) return;
+    el.insertAdjacentHTML('afterbegin','<div id="ventas-conversion"></div>');
+    box=document.getElementById('ventas-conversion');
+  }
+  var conLead=vs.filter(function(v){return v.leadPrioridad && v.campanaId;});
+  if(!conLead.length){ box.innerHTML=''; return; }
+  box.innerHTML='<div class="card"><div class="ct">Tasa de conversión real (Leads → Ventas)</div><p style="font-size:11px;color:var(--dim)">Calculando...</p></div>';
+
+  var ingMap={};
+  try{
+    var r=await fetch('https://script.google.com/macros/s/AKfycbzU2GRxL87N47Jf0QMMBXy_2xZe98DBP-vbZSYnvXtE92c-4mqX8jveI-jxrogRPolS6g/exec?key=geo2026panel');
+    var j=await r.json();
+    (j.campanas||[]).forEach(function(c){
+      if(!c.total) return;
+      ingMap[(c.hoja||'').trim().toLowerCase()]={total:c.total,porPrioridad:c.porPrioridad||{}};
+    });
+  }catch(e){ console.error('No se pudo leer Leads de Ingeniería para conversión', e); }
+
+  // Agrupar ventas-con-lead por campaña + prioridad
+  var porCampPrio={};
+  conLead.forEach(function(v){
+    var camp=G.campaigns.find(function(c){return c.id===v.campanaId;});
+    if(!camp) return;
+    var key=camp.id+'::'+v.leadPrioridad;
+    if(!porCampPrio[key])porCampPrio[key]={camp:camp,prioridad:v.leadPrioridad,ventas:0,monto:0};
+    porCampPrio[key].ventas++;
+    if(v.monto)porCampPrio[key].monto+=v.monto;
+  });
+
+  var filas=Object.values(porCampPrio).map(function(g){
+    var leadsInfo=g.camp.metaNombre?ingMap[g.camp.metaNombre.trim().toLowerCase()]:null;
+    var totalLeadsPrio=leadsInfo?(leadsInfo.porPrioridad[g.prioridad]||0):null;
+    var tasa=totalLeadsPrio?Math.round(g.ventas/totalLeadsPrio*100):null;
+    return {codigo:g.camp.codigo,prioridad:g.prioridad,ventas:g.ventas,monto:g.monto,totalLeads:totalLeadsPrio,tasa:tasa};
+  }).sort(function(a,b){
+    var order={ALTA:0,MEDIA:1,BAJA:2,DESCARTAR:3};
+    return (order[a.prioridad]-order[b.prioridad])||b.tasa-a.tasa;
+  });
+
+  var leadColors={ALTA:'var(--green)',MEDIA:'var(--gold)',BAJA:'var(--red)',DESCARTAR:'var(--faint)'};
+  var html='<div class="card"><div class="ct">Tasa de conversión real (Leads → Ventas)</div>'
+    +'<div class="notice">Solo incluye campañas de Ingeniería con "Nombre de campaña (Meta)" cargado — es el único caso donde se puede cruzar 1 a 1 con Sheets. AGRO y ventas sin lead marcado quedan afuera de esta tabla.</div>'
+    +'<table class="dt"><thead><tr><th>Campaña</th><th>Prioridad</th><th style="text-align:right">Leads totales</th><th style="text-align:right">Ventas originadas</th><th style="text-align:right">Facturación</th><th style="text-align:right">Tasa de conversión</th></tr></thead><tbody>'
+    +filas.map(function(f){
+      return '<tr><td style="font-size:11px">'+f.codigo+'</td>'
+        +'<td><span style="font-size:10px;font-weight:500;color:'+(leadColors[f.prioridad]||'var(--dim)')+'">'+f.prioridad+'</span></td>'
+        +'<td style="text-align:right">'+(f.totalLeads!=null?f.totalLeads:'<span style="color:var(--faint)">sin match</span>')+'</td>'
+        +'<td style="text-align:right">'+f.ventas+'</td>'
+        +'<td style="text-align:right;color:var(--green)">$'+f.monto.toLocaleString()+'</td>'
+        +'<td style="text-align:right;font-weight:500">'+(f.tasa!=null?f.tasa+'%':'—')+'</td>'
+        +'</tr>';
+    }).join('')
+    +'</tbody></table></div>';
+  box.innerHTML=html;
 }
 
 // ── VENTAS EXPORTS ───────────────────────────────────
