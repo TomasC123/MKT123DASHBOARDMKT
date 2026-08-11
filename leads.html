@@ -264,8 +264,8 @@ function filledSeries(porDia){
   }
   return out;
 }
-// Filas día a día con variación (orden: más reciente arriba)
-function dayRows(serie){
+// Filas día a día con variación + desglose de calidad (unidades y %)
+function dayRows(serie, porDiaPrioridad){
   const rows = [];
   for (let i=serie.length-1; i>=0; i--){
     const hoy = serie[i];
@@ -282,7 +282,13 @@ function dayRows(serie){
         cls = d>0 ? 'pos' : 'neg';
       }
     }
-    rows.push({ fecha:hoy.fecha, count:hoy.count, varTxt:varTxt, cls:cls });
+    const cal = (porDiaPrioridad && porDiaPrioridad[hoy.fecha]) || null;
+    const calidad = ['ALTA','MEDIA','BAJA','DESCARTAR'].map(function(k){
+      if (!cal || !hoy.count) return { n:0, pct:null };
+      const n = cal[k]||0;
+      return { n:n, pct: Math.round(n/hoy.count*100) };
+    });
+    rows.push({ fecha:hoy.fecha, count:hoy.count, varTxt:varTxt, cls:cls, calidad:calidad, tieneCalidad:!!cal });
   }
   return rows;
 }
@@ -410,6 +416,7 @@ function cardHTML(c){
   const p = c.porPrioridad || {};
   const tot = c.total || 1;
   const seg = function(k){ return ((p[k]||0)/tot*100).toFixed(2); };
+  const segPct = function(k){ return Math.round((p[k]||0)/tot*100); };
   const ult = lastDia(c.porDia);
   const leads = c.ultimosLeads || [];
 
@@ -432,10 +439,10 @@ function cardHTML(c){
       '<div class="s-desc" style="width:'+seg('DESCARTAR')+'%"></div>'+
     '</div>'+
     '<div class="legend">'+
-      '<span><i class="dot d-alta"></i>Alta <b>'+(p.ALTA||0)+'</b></span>'+
-      '<span><i class="dot d-media"></i>Media <b>'+(p.MEDIA||0)+'</b></span>'+
-      '<span><i class="dot d-baja"></i>Baja <b>'+(p.BAJA||0)+'</b></span>'+
-      '<span><i class="dot d-desc"></i>Descartar <b>'+(p.DESCARTAR||0)+'</b></span>'+
+      '<span><i class="dot d-alta"></i>Alta <b>'+(p.ALTA||0)+'</b> <span style="color:var(--mut2)">('+segPct('ALTA')+'%)</span></span>'+
+      '<span><i class="dot d-media"></i>Media <b>'+(p.MEDIA||0)+'</b> <span style="color:var(--mut2)">('+segPct('MEDIA')+'%)</span></span>'+
+      '<span><i class="dot d-baja"></i>Baja <b>'+(p.BAJA||0)+'</b> <span style="color:var(--mut2)">('+segPct('BAJA')+'%)</span></span>'+
+      '<span><i class="dot d-desc"></i>Descartar <b>'+(p.DESCARTAR||0)+'</b> <span style="color:var(--mut2)">('+segPct('DESCARTAR')+'%)</span></span>'+
     '</div>'+
     '<div class="spark-row">'+
       '<div class="spark">'+sparkSVG(c.porDia)+'</div>'+
@@ -452,14 +459,24 @@ function cardHTML(c){
 }
 
 function dayTableHTML(c){
-  const rows = dayRows(filledSeries(c.porDia));
+  const rows = dayRows(filledSeries(c.porDia), c.porDiaPrioridad);
   if (!rows.length) return '<div class="state">Sin datos diarios.</div>';
+  const sinCalidad = !rows.some(function(r){ return r.tieneCalidad; });
   return '<div class="daywrap"><table class="daytable">'+
-    '<thead><tr><th>Fecha</th><th class="num">Leads</th><th class="num">Variación vs día anterior</th></tr></thead>'+
+    '<thead><tr><th>Fecha</th><th class="num">Leads</th>'
+    +'<th class="num" style="color:var(--alta)">Alta</th>'
+    +'<th class="num" style="color:var(--media)">Media</th>'
+    +'<th class="num" style="color:var(--baja)">Baja</th>'
+    +'<th class="num" style="color:var(--desc)">Descartar</th>'
+    +'<th class="num">Variación vs día anterior</th></tr></thead>'+
     '<tbody>'+rows.map(function(r){
-      return '<tr><td>'+fmtDia(r.fecha)+'</td><td class="num">'+r.count+'</td><td class="num '+r.cls+'">'+r.varTxt+'</td></tr>';
+      const cel = r.calidad.map(function(x){
+        return '<td class="num">'+(r.tieneCalidad ? x.n+(r.count?' <span style="color:var(--mut2)">('+x.pct+'%)</span>':'') : '—')+'</td>';
+      }).join('');
+      return '<tr><td>'+fmtDia(r.fecha)+'</td><td class="num">'+r.count+'</td>'+cel+'<td class="num '+r.cls+'">'+r.varTxt+'</td></tr>';
     }).join('')+'</tbody>'+
-  '</table></div>';
+  '</table></div>'
+  +(sinCalidad ? '<p style="font-size:10px;color:var(--mut2);margin-top:6px">Todavía no hay calificación día a día para esta campaña — se ve una vez que se actualice el Apps Script.</p>' : '');
 }
 
 function leadHTML(l){
@@ -655,10 +672,13 @@ function metricasTable(c){
     '</tr></tbody></table>';
 }
 function diaTablePrint(c){
-  const rows = dayRows(filledSeries(c.porDia));
-  return '<table><thead><tr><th>Fecha</th><th class="pnum">Leads</th><th class="pnum">Variación vs día anterior</th></tr></thead><tbody>'+
+  const rows = dayRows(filledSeries(c.porDia), c.porDiaPrioridad);
+  return '<table><thead><tr><th>Fecha</th><th class="pnum">Leads</th><th class="pnum">Alta</th><th class="pnum">Media</th><th class="pnum">Baja</th><th class="pnum">Descartar</th><th class="pnum">Variación vs día anterior</th></tr></thead><tbody>'+
     rows.map(function(r){
-      return '<tr><td>'+fmtDiaFull(r.fecha)+'</td><td class="pnum">'+r.count+'</td><td class="pnum">'+r.varTxt+'</td></tr>';
+      const cel = r.calidad.map(function(x){
+        return '<td class="pnum">'+(r.tieneCalidad ? x.n+(r.count?' ('+x.pct+'%)':'') : '—')+'</td>';
+      }).join('');
+      return '<tr><td>'+fmtDiaFull(r.fecha)+'</td><td class="pnum">'+r.count+'</td>'+cel+'<td class="pnum">'+r.varTxt+'</td></tr>';
     }).join('')+'</tbody></table>';
 }
 function leadsTablePrint(c){
