@@ -1742,6 +1742,17 @@ async function procesarFilasMeta(filas){
     });
   }catch(e){ console.error('No se pudo leer Leads de Ingeniería', e); }
 
+  if(statusEl) statusEl.textContent='Cruzando con la hoja de Solicitudes...';
+  let solicitudMap={};
+  try{
+    const rS=await fetch(SOLICITUD_URL);
+    const jS=await rS.json();
+    (jS.solicitudes||[]).forEach(function(s){
+      if(s.estado!=='APROBADO') return;
+      solicitudMap[(s.nombreCampana||'').trim().toLowerCase()]=s;
+    });
+  }catch(e){ console.error('No se pudo leer la hoja de Solicitudes', e); }
+
   const util=filas.filter(function(f){
     const gasto=parseFloat((f['Importe gastado (USD)']||'0').replace(',','.'));
     return f['Nombre de la campaña'] && gasto>0;
@@ -1757,6 +1768,7 @@ async function procesarFilasMeta(filas){
       return c.metaNombre && c.metaNombre.trim().toLowerCase()===nombreMeta.toLowerCase();
     });
     const leadsInfo=ingLeadsMap[nombreMeta.toLowerCase()]||null;
+    const solicitudInfo=solicitudMap[nombreMeta.toLowerCase()]||null;
     let effDiasCalc=null;
     if(match && match.fechaReal && fin){
       const d1=new Date(match.fechaReal+'T00:00:00'), d2=new Date(fin+'T00:00:00');
@@ -1768,6 +1780,7 @@ async function procesarFilasMeta(filas){
       campId: match?match.id:null,
       esNueva: !match,
       leadsInfo:leadsInfo,
+      solicitudInfo:solicitudInfo,
       effDiasCalc: effDiasCalc,
       producto:'', tipo:'META',
       aplicar:true
@@ -1790,9 +1803,10 @@ function renderImportMetaTable(){
   const nMatch=metaImportRows.filter(function(r){return r.campId;}).length;
   const nNuevas=metaImportRows.filter(function(r){return r.esNueva;}).length;
   const nLeads=metaImportRows.filter(function(r){return r.leadsInfo;}).length;
+  const nSolicitud=metaImportRows.filter(function(r){return r.solicitudInfo;}).length;
 
   let html='<div style="overflow-x:auto;margin-top:14px"><table class="dt"><thead><tr>'
-    +'<th></th><th>Campaña (Meta)</th><th>Vinculada a / Crear como</th><th style="text-align:right">Gasto</th><th style="text-align:right">Leads (Sheets)</th>'
+    +'<th></th><th>Campaña (Meta)</th><th>Vinculada a / Crear como</th><th style="text-align:right">Gasto</th><th style="text-align:right">Leads (Sheets)</th><th>Solicitud</th>'
     +'</tr></thead><tbody>';
 
   metaImportRows.forEach(function(r,i){
@@ -1814,16 +1828,20 @@ function renderImportMetaTable(){
     const leadsTxt=r.leadsInfo
       ? r.leadsInfo.total+' <span style="color:var(--dim)">(A'+(r.leadsInfo.porPrioridad.ALTA||0)+'/M'+(r.leadsInfo.porPrioridad.MEDIA||0)+'/B'+(r.leadsInfo.porPrioridad.BAJA||0)+'/D'+(r.leadsInfo.porPrioridad.DESCARTAR||0)+')</span>'
       : '<span style="color:var(--faint)">—</span>';
+    const solTxt=r.solicitudInfo
+      ? '<span style="color:var(--green);font-size:10px">✓ '+fmt(r.solicitudInfo.presupuestoTotal)+' · '+(r.solicitudInfo.duracionDias||'—')+'d'+(r.esNueva?'':' <span style="color:var(--dim)">(solo aplica a nuevas)</span>')+'</span>'
+      : '<span style="color:var(--faint);font-size:10px">—</span>';
     html+='<tr>'
       +'<td><input type="checkbox" '+(r.aplicar?'checked':'')+' onchange="metaImportRows['+i+'].aplicar=this.checked"></td>'
       +'<td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+r.nombreMeta+'">'+r.nombreMeta+'</td>'
       +'<td>'+vinculoHTML+'</td>'
       +'<td style="text-align:right;font-size:11px;font-weight:500">'+fmt(r.gasto)+(r.effDiasCalc?' <span style="color:var(--dim);font-weight:400">('+r.effDiasCalc+'d)</span>':'')+'</td>'
       +'<td style="text-align:right;font-size:11px">'+leadsTxt+'</td>'
+      +'<td>'+solTxt+'</td>'
       +'</tr>';
   });
   html+='</tbody></table></div>'
-    +'<p class="fhint" style="margin-top:8px">Los leads solo se traen automáticamente para campañas de Ingeniería que coinciden por nombre exacto con la hoja de Sheets. AGRO y las que no matchean quedan con Leads vacío, para cargar a mano.</p>'
+    +'<p class="fhint" style="margin-top:8px">Los leads solo se traen automáticamente para campañas de Ingeniería que coinciden por nombre exacto con la hoja de Sheets. La columna Solicitud completa Presupuesto planificado y Fecha planificada, pero solo en campañas nuevas — a las que ya existen no les toca esos campos, para no pisar lo que ya revisaste a mano.</p>'
     +'<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">'
     +'<button class="btn" onclick="closeImportMeta()">Cancelar</button>'
     +'<button class="btn btn-ink" onclick="aplicarImportMeta()">Aplicar cambios</button>'
@@ -1831,7 +1849,7 @@ function renderImportMetaTable(){
   body.innerHTML =
     '<p style="font-size:12px;color:var(--dim);margin-bottom:6px">'
     +'Se encontraron <b>'+metaImportRows.length+'</b> campañas con gasto en el archivo · '
-    +nMatch+' vinculadas automáticamente · '+nNuevas+' se crearían nuevas · '+nLeads+' con leads de Sheets.</p>'
+    +nMatch+' vinculadas automáticamente · '+nNuevas+' se crearían nuevas · '+nLeads+' con leads de Sheets · '+nSolicitud+' con solicitud aprobada encontrada.</p>'
     +html;
 }
 
@@ -1879,13 +1897,18 @@ async function aplicarImportMeta(){
     const fecha=r.fin||new Date().toISOString().slice(0,10);
     const d=new Date(fecha+'T00:00:00');
     const codigo=genCode(r.producto,r.tipo,fecha)||('IMP-'+Date.now());
+    const sol=r.solicitudInfo;
+    const budDiasCalc=sol&&sol.duracionDias!=null?sol.duracionDias:null;
+    const budTotalCalc=sol&&sol.presupuestoTotal!=null?sol.presupuestoTotal:null;
     const camp={
       id:'c'+Date.now()+Math.random().toString(36).slice(2,6),
       fechaCarga:new Date().toISOString().slice(0,10),
       fecha:fecha, mes:d.getMonth(), anio:d.getFullYear(),
       producto:r.producto, tipo:r.tipo, modo:'', codigo:codigo, metaNombre:r.nombreMeta,
-      fechaPlan:'', fechaReal:'',
-      budDia:null, budDias:null, budTotal:null,
+      fechaPlan: sol&&sol.fechaInicio ? sol.fechaInicio : '',
+      fechaReal:'',
+      budDia: (budTotalCalc&&budDiasCalc)?Math.round((budTotalCalc/budDiasCalc)*100)/100:null,
+      budDias: budDiasCalc, budTotal: budTotalCalc,
       effDia:r.effDiasCalc?Math.round((r.gasto/r.effDiasCalc)*100)/100:null,
       effDias:r.effDiasCalc||null, effTotal:r.gasto,
       leads:r.leadsInfo?r.leadsInfo.total:null,
@@ -1895,7 +1918,7 @@ async function aplicarImportMeta(){
       wpp:null,
       mailProvTipo:'',mailProv:'',mailEnviados:null,mailApertura:null,mailClicks:null,
       sinLeads:false, segmentacion:'', dobleVersion:false, versiones:[], comments:[],
-      notas:'Importada masivamente desde Meta el '+new Date().toLocaleDateString('es-AR'),
+      notas:'Importada masivamente desde Meta el '+new Date().toLocaleDateString('es-AR')+(sol?' · Presupuesto planificado desde la solicitud aprobada por '+(sol.aprobadoPor||'—'):''),
       media:[], updatedAt:new Date().toISOString()
     };
     G.campaigns.unshift(camp);
