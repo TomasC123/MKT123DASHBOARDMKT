@@ -1047,6 +1047,30 @@ function renderDash(){
 // Trae en vivo lo que está calendarizado en calendario.html (días × tarifa),
 // sin importar si ya se ejecutó o no. Si el dashboard tiene un mes/año
 // filtrado, suma solo ese mes; si no, suma todos los meses cargados.
+// Matcheo por palabras en común, no por nombre exacto — porque el
+// Calendario tiene columnas mucho más específicas ("Lidar Slam Y GNSS")
+// que la lista corta de Productos de campañas.html ("Estación Total").
+function normalizarTexto(s){
+  return String(s||'').toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^A-Z0-9\s]/g,' ')
+    .replace(/\s+/g,' ').trim();
+}
+var STOPWORDS_MATCH=['Y','DE','DEL','LA','EL','LOS','LAS','CON','EN','A','PARA'];
+function mejorProductoLocal(nombreCal, productosLocales){
+  var palabrasCal=normalizarTexto(nombreCal).split(' ').filter(function(w){return w.length>=3 && STOPWORDS_MATCH.indexOf(w)<0;});
+  if(!palabrasCal.length) return null;
+  var mejor=null, mejorScore=0;
+  productosLocales.forEach(function(p){
+    var palabrasProd=normalizarTexto(p.name).split(' ').filter(function(w){return w.length>=3 && STOPWORDS_MATCH.indexOf(w)<0;});
+    if(!palabrasProd.length) return;
+    var matches=palabrasProd.filter(function(w){return palabrasCal.indexOf(w)>=0;}).length;
+    var score=matches/palabrasProd.length;
+    if(score>mejorScore){ mejorScore=score; mejor=p; }
+  });
+  return (mejor && mejorScore>=0.5) ? mejor : null;
+}
+
 async function actualizarCalendarizado(totalEfectivo){
   var valorEl=document.getElementById('kpi-cal-valor');
   var subEl=document.getElementById('kpi-cal-sub');
@@ -1056,10 +1080,13 @@ async function actualizarCalendarizado(totalEfectivo){
     if(!r.ok) throw new Error(r.status);
     var rec=(await r.json()).record||{};
     var tipos=rec.campaigns||[];
+    var calProds=rec.products||[];
     var calendarios=rec.calendars||{};
     var yf=gv('dy'), mf=gv('dm');
 
-    var total=0, dias=0;
+    // Agrupamos lo calendarizado por Producto + Mes + Año, para poder
+    // cruzarlo después contra las campañas que sí están cargadas.
+    var grupos={}; // key: pid|year|month
     Object.keys(calendarios).forEach(function(key){
       var parts=key.split('-');
       var year=parseInt(parts[0]), month=parseInt(parts[1]);
@@ -1067,17 +1094,44 @@ async function actualizarCalendarizado(totalEfectivo){
       if(mf!=='' && month!==parseInt(mf)) return;
       var cells=(calendarios[key]||{}).cells||{};
       Object.keys(cells).forEach(function(k){
+        var kp=k.split('-');
+        var pid=kp.slice(3).join('-');
+        var calProd=calProds.find(function(p){return p.id===pid;});
         var tipo=tipos.find(function(t){return t.id===cells[k];});
-        if(tipo){ total+=(tipo.budget||0); dias++; }
+        if(!tipo || !calProd) return;
+        var localProd=mejorProductoLocal(calProd.name, G.products);
+        var gkey=(localProd?localProd.id:'?'+calProd.name)+'|'+year+'|'+month;
+        if(!grupos[gkey]) grupos[gkey]={ calendarizado:0, productoId:localProd?localProd.id:null, year:year, month:month };
+        grupos[gkey].calendarizado += (tipo.budget||0);
       });
+    });
+
+    var total=0, sinCampana=0, cargadaSinEfectivo=0;
+    Object.values(grupos).forEach(function(g){
+      total += g.calendarizado;
+      if(!g.productoId){ sinCampana += g.calendarizado; return; } // ni siquiera existe ese Producto en campañas.html
+      var campsDelGrupo = G.campaigns.filter(function(c){
+        return c.producto===g.productoId && !c.cancelada && c.mes===g.month && c.anio===g.year;
+      });
+      if(!campsDelGrupo.length){ sinCampana += g.calendarizado; return; } // no se cargó ninguna campaña ese mes
+      var efectivoGrupo=0;
+      campsDelGrupo.forEach(function(c){ if(c.effTotal) efectivoGrupo+=c.effTotal; });
+      var falta = g.calendarizado - efectivoGrupo;
+      if(falta>0) cargadaSinEfectivo += falta;
     });
 
     if(!document.getElementById('kpi-cal-valor')) return; // por si cambió de vista mientras esperaba
     valorEl.textContent='$'+total.toLocaleString();
-    var pendiente=total-(totalEfectivo||0);
-    subEl.textContent = dias
-      ? (pendiente>0 ? '$'+pendiente.toLocaleString()+' sin ejecutar aún' : 'ya ejecutado / superado')
-      : 'sin datos en el calendario';
+    if(!total){
+      subEl.textContent='sin datos en el calendario';
+    } else if(!sinCampana && !cargadaSinEfectivo){
+      subEl.textContent='todo cargado y con efectivo';
+    } else {
+      subEl.innerHTML =
+        (sinCampana ? '$'+sinCampana.toLocaleString()+' sin campaña cargada' : '')
+        + (sinCampana && cargadaSinEfectivo ? '<br>' : '')
+        + (cargadaSinEfectivo ? '$'+cargadaSinEfectivo.toLocaleString()+' cargada, falta efectivo' : '');
+    }
   }catch(e){
     console.error('Error trayendo Calendarizado', e);
     if(valorEl) valorEl.textContent='—';
@@ -1116,18 +1170,18 @@ function renderFinanciero(camps,el){
   }).join('<span style="color:var(--faint);margin:0 3px">·</span>');
 
   var html='<div class="kpi-grid">'
-    +'<div class="kpi green" style="grid-column:1/-1 !important"><div class="kl">Total invertido</div>'
+    +'<div class="kpi green" style="grid-column:1/-1 !important"><div class="kl">Gasto real</div>'
     +'<div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap">'
     +'<div class="kv">$'+totE.toLocaleString()+'</div>'
     +'<div style="font-size:10px;color:var(--dim)">'+camps.length+' campañas</div>'
     +'</div>'
     +(tipoBreakdown?'<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">'+tipoBreakdown+'</div>':'')
     +'</div>'
-    +'<div class="kpi blue"><div class="kl">Gastado en efectivo</div><div class="kv">$'+totB.toLocaleString()+'</div><div class="ks" style="color:'+(variance>0?'var(--red)':'var(--green)')+'">'+(variance>0?'▲':'▼')+' $'+Math.abs(variance).toLocaleString()+'</div></div>'
+    +'<div class="kpi blue"><div class="kl">Presupuesto</div><div class="kv">$'+totB.toLocaleString()+'</div><div class="ks" style="color:'+(variance>0?'var(--red)':'var(--green)')+'">'+(variance>0?'▲':'▼')+' $'+Math.abs(variance).toLocaleString()+'</div></div>'
     +'<div class="kpi gold"><div class="kl">CPL promedio</div><div class="kv">'+(totCPL?'$'+totCPL:'—')+'</div><div class="ks">'+totL+' leads</div></div>'
     +'<div class="kpi purple"><div class="kl">CPC WhatsApp</div><div class="kv">'+(totWPC?'$'+totWPC:'—')+'</div><div class="ks">'+totW+' contactos</div></div>'
     +'<div class="kpi '+(totEff?totEff<=100?'green':'red':'neutral')+'"><div class="kl">Eficiencia</div><div class="kv">'+(totEff?totEff+'%':'—')+'</div><div class="ks">efec/pres</div></div>'
-    +'<div class="kpi neutral" id="kpi-calendarizado"><div class="kl">Calendarizado</div><div class="kv" id="kpi-cal-valor">...</div><div class="ks" id="kpi-cal-sub">Calculando...</div></div>'
+    +'<div class="kpi neutral" id="kpi-calendarizado"><div class="kl">Calendario</div><div class="kv" id="kpi-cal-valor">...</div><div class="ks" id="kpi-cal-sub">Calculando...</div></div>'
     +'</div>';
 
   html+='<div class="cg">';
