@@ -1044,6 +1044,47 @@ function renderDash(){
   else renderFinanciero(camps,el);
 }
 
+// Trae en vivo lo que está calendarizado en calendario.html (días × tarifa),
+// sin importar si ya se ejecutó o no. Si el dashboard tiene un mes/año
+// filtrado, suma solo ese mes; si no, suma todos los meses cargados.
+async function actualizarCalendarizado(totalEfectivo){
+  var valorEl=document.getElementById('kpi-cal-valor');
+  var subEl=document.getElementById('kpi-cal-sub');
+  if(!valorEl) return; // el usuario ya cambió de vista
+  try{
+    var r=await fetch('https://api.jsonbin.io/v3/b/'+CAL_BIN+'/latest',{headers:{'X-Master-Key':API_KEY}});
+    if(!r.ok) throw new Error(r.status);
+    var rec=(await r.json()).record||{};
+    var tipos=rec.campaigns||[];
+    var calendarios=rec.calendars||{};
+    var yf=gv('dy'), mf=gv('dm');
+
+    var total=0, dias=0;
+    Object.keys(calendarios).forEach(function(key){
+      var parts=key.split('-');
+      var year=parseInt(parts[0]), month=parseInt(parts[1]);
+      if(yf && year!=yf) return;
+      if(mf!=='' && month!==parseInt(mf)) return;
+      var cells=(calendarios[key]||{}).cells||{};
+      Object.keys(cells).forEach(function(k){
+        var tipo=tipos.find(function(t){return t.id===cells[k];});
+        if(tipo){ total+=(tipo.budget||0); dias++; }
+      });
+    });
+
+    if(!document.getElementById('kpi-cal-valor')) return; // por si cambió de vista mientras esperaba
+    valorEl.textContent='$'+total.toLocaleString();
+    var pendiente=total-(totalEfectivo||0);
+    subEl.textContent = dias
+      ? (pendiente>0 ? '$'+pendiente.toLocaleString()+' sin ejecutar aún' : 'ya ejecutado / superado')
+      : 'sin datos en el calendario';
+  }catch(e){
+    console.error('Error trayendo Calendarizado', e);
+    if(valorEl) valorEl.textContent='—';
+    if(subEl) subEl.textContent='Error al consultar el Calendario';
+  }
+}
+
 function renderFinanciero(camps,el){
   var totB=0,totE=0,totL=0,totW=0;
   camps.forEach(function(c){if(c.budTotal)totB+=c.budTotal;if(c.effTotal)totE+=c.effTotal;if(!c.sinLeads&&c.leads)totL+=c.leads;if(!c.sinLeads&&c.wpp)totW+=c.wpp;});
@@ -1082,10 +1123,11 @@ function renderFinanciero(camps,el){
     +'</div>'
     +(tipoBreakdown?'<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">'+tipoBreakdown+'</div>':'')
     +'</div>'
-    +'<div class="kpi blue"><div class="kl">Presupuestado</div><div class="kv">$'+totB.toLocaleString()+'</div><div class="ks" style="color:'+(variance>0?'var(--red)':'var(--green)')+'">'+(variance>0?'▲':'▼')+' $'+Math.abs(variance).toLocaleString()+'</div></div>'
+    +'<div class="kpi blue"><div class="kl">Gastado en efectivo</div><div class="kv">$'+totB.toLocaleString()+'</div><div class="ks" style="color:'+(variance>0?'var(--red)':'var(--green)')+'">'+(variance>0?'▲':'▼')+' $'+Math.abs(variance).toLocaleString()+'</div></div>'
     +'<div class="kpi gold"><div class="kl">CPL promedio</div><div class="kv">'+(totCPL?'$'+totCPL:'—')+'</div><div class="ks">'+totL+' leads</div></div>'
     +'<div class="kpi purple"><div class="kl">CPC WhatsApp</div><div class="kv">'+(totWPC?'$'+totWPC:'—')+'</div><div class="ks">'+totW+' contactos</div></div>'
     +'<div class="kpi '+(totEff?totEff<=100?'green':'red':'neutral')+'"><div class="kl">Eficiencia</div><div class="kv">'+(totEff?totEff+'%':'—')+'</div><div class="ks">efec/pres</div></div>'
+    +'<div class="kpi neutral" id="kpi-calendarizado"><div class="kl">Calendarizado</div><div class="kv" id="kpi-cal-valor">...</div><div class="ks" id="kpi-cal-sub">Calculando...</div></div>'
     +'</div>';
 
   html+='<div class="cg">';
@@ -1323,6 +1365,7 @@ function renderFinanciero(camps,el){
   }
 
   el.innerHTML=html;
+  actualizarCalendarizado(totE);
 }
 
 function renderOperativo(camps,el){
