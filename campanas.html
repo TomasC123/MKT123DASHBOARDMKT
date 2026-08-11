@@ -584,6 +584,7 @@ function renderForm(){
     +'<input type="text" id="f-meta-nombre" value="'+v('metaNombre','')+'" placeholder="Igual al nombre en Meta Ads Manager / al nombre de la pestaña en Sheets">'
     +'<span class="fhint">Copialo tal cual aparece en Meta Ads Manager (o el nombre de la pestaña en Sheets). Se usa para importar gasto y traer los leads automáticamente.</span>'
     +'<button type="button" class="btn btn-xs" style="margin-top:6px" onclick="traerResultadosLeads()">↺ Traer resultados de Leads</button>'
+    +'<button type="button" class="btn btn-xs" style="margin-top:6px;margin-left:6px" onclick="traerDatosSolicitud()">↺ Traer datos de solicitud</button>'
     +'<span id="leads-fetch-status" style="font-size:10px;color:var(--dim);margin-top:4px;display:block"></span>'
     +'</div>'
     +'<div class="field"><label>Fecha inicio planificada</label>'
@@ -1044,101 +1045,6 @@ function renderDash(){
   else renderFinanciero(camps,el);
 }
 
-// Trae en vivo lo que está calendarizado en calendario.html (días × tarifa),
-// sin importar si ya se ejecutó o no. Si el dashboard tiene un mes/año
-// filtrado, suma solo ese mes; si no, suma todos los meses cargados.
-// Matcheo por palabras en común, no por nombre exacto — porque el
-// Calendario tiene columnas mucho más específicas ("Lidar Slam Y GNSS")
-// que la lista corta de Productos de campañas.html ("Estación Total").
-function normalizarTexto(s){
-  return String(s||'').toUpperCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
-    .replace(/[^A-Z0-9\s]/g,' ')
-    .replace(/\s+/g,' ').trim();
-}
-var STOPWORDS_MATCH=['Y','DE','DEL','LA','EL','LOS','LAS','CON','EN','A','PARA'];
-function mejorProductoLocal(nombreCal, productosLocales){
-  var palabrasCal=normalizarTexto(nombreCal).split(' ').filter(function(w){return w.length>=3 && STOPWORDS_MATCH.indexOf(w)<0;});
-  if(!palabrasCal.length) return null;
-  var mejor=null, mejorScore=0;
-  productosLocales.forEach(function(p){
-    var palabrasProd=normalizarTexto(p.name).split(' ').filter(function(w){return w.length>=3 && STOPWORDS_MATCH.indexOf(w)<0;});
-    if(!palabrasProd.length) return;
-    var matches=palabrasProd.filter(function(w){return palabrasCal.indexOf(w)>=0;}).length;
-    var score=matches/palabrasProd.length;
-    if(score>mejorScore){ mejorScore=score; mejor=p; }
-  });
-  return (mejor && mejorScore>=0.5) ? mejor : null;
-}
-
-async function actualizarCalendarizado(totalEfectivo){
-  var valorEl=document.getElementById('kpi-cal-valor');
-  var subEl=document.getElementById('kpi-cal-sub');
-  if(!valorEl) return; // el usuario ya cambió de vista
-  try{
-    var r=await fetch('https://api.jsonbin.io/v3/b/'+CAL_BIN+'/latest',{headers:{'X-Master-Key':API_KEY}});
-    if(!r.ok) throw new Error(r.status);
-    var rec=(await r.json()).record||{};
-    var tipos=rec.campaigns||[];
-    var calProds=rec.products||[];
-    var calendarios=rec.calendars||{};
-    var yf=gv('dy'), mf=gv('dm');
-
-    // Agrupamos lo calendarizado por Producto + Mes + Año, para poder
-    // cruzarlo después contra las campañas que sí están cargadas.
-    var grupos={}; // key: pid|year|month
-    Object.keys(calendarios).forEach(function(key){
-      var parts=key.split('-');
-      var year=parseInt(parts[0]), month=parseInt(parts[1]);
-      if(yf && year!=yf) return;
-      if(mf!=='' && month!==parseInt(mf)) return;
-      var cells=(calendarios[key]||{}).cells||{};
-      Object.keys(cells).forEach(function(k){
-        var kp=k.split('-');
-        var pid=kp.slice(3).join('-');
-        var calProd=calProds.find(function(p){return p.id===pid;});
-        var tipo=tipos.find(function(t){return t.id===cells[k];});
-        if(!tipo || !calProd) return;
-        var localProd=mejorProductoLocal(calProd.name, G.products);
-        var gkey=(localProd?localProd.id:'?'+calProd.name)+'|'+year+'|'+month;
-        if(!grupos[gkey]) grupos[gkey]={ calendarizado:0, productoId:localProd?localProd.id:null, year:year, month:month };
-        grupos[gkey].calendarizado += (tipo.budget||0);
-      });
-    });
-
-    var total=0, sinCampana=0, cargadaSinEfectivo=0;
-    Object.values(grupos).forEach(function(g){
-      total += g.calendarizado;
-      if(!g.productoId){ sinCampana += g.calendarizado; return; } // ni siquiera existe ese Producto en campañas.html
-      var campsDelGrupo = G.campaigns.filter(function(c){
-        return c.producto===g.productoId && !c.cancelada && c.mes===g.month && c.anio===g.year;
-      });
-      if(!campsDelGrupo.length){ sinCampana += g.calendarizado; return; } // no se cargó ninguna campaña ese mes
-      var efectivoGrupo=0;
-      campsDelGrupo.forEach(function(c){ if(c.effTotal) efectivoGrupo+=c.effTotal; });
-      var falta = g.calendarizado - efectivoGrupo;
-      if(falta>0) cargadaSinEfectivo += falta;
-    });
-
-    if(!document.getElementById('kpi-cal-valor')) return; // por si cambió de vista mientras esperaba
-    valorEl.textContent='$'+total.toLocaleString();
-    if(!total){
-      subEl.textContent='sin datos en el calendario';
-    } else if(!sinCampana && !cargadaSinEfectivo){
-      subEl.textContent='todo cargado y con efectivo';
-    } else {
-      subEl.innerHTML =
-        (sinCampana ? '$'+sinCampana.toLocaleString()+' sin campaña cargada' : '')
-        + (sinCampana && cargadaSinEfectivo ? '<br>' : '')
-        + (cargadaSinEfectivo ? '$'+cargadaSinEfectivo.toLocaleString()+' cargada, falta efectivo' : '');
-    }
-  }catch(e){
-    console.error('Error trayendo Calendarizado', e);
-    if(valorEl) valorEl.textContent='—';
-    if(subEl) subEl.textContent='Error al consultar el Calendario';
-  }
-}
-
 function renderFinanciero(camps,el){
   var totB=0,totE=0,totL=0,totW=0;
   camps.forEach(function(c){if(c.budTotal)totB+=c.budTotal;if(c.effTotal)totE+=c.effTotal;if(!c.sinLeads&&c.leads)totL+=c.leads;if(!c.sinLeads&&c.wpp)totW+=c.wpp;});
@@ -1170,18 +1076,17 @@ function renderFinanciero(camps,el){
   }).join('<span style="color:var(--faint);margin:0 3px">·</span>');
 
   var html='<div class="kpi-grid">'
-    +'<div class="kpi green" style="grid-column:1/-1 !important"><div class="kl">Gasto real</div>'
+    +'<div class="kpi green" style="grid-column:1/-1 !important"><div class="kl">Total invertido</div>'
     +'<div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap">'
     +'<div class="kv">$'+totE.toLocaleString()+'</div>'
     +'<div style="font-size:10px;color:var(--dim)">'+camps.length+' campañas</div>'
     +'</div>'
     +(tipoBreakdown?'<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">'+tipoBreakdown+'</div>':'')
     +'</div>'
-    +'<div class="kpi blue"><div class="kl">Presupuesto</div><div class="kv">$'+totB.toLocaleString()+'</div><div class="ks" style="color:'+(variance>0?'var(--red)':'var(--green)')+'">'+(variance>0?'▲':'▼')+' $'+Math.abs(variance).toLocaleString()+'</div></div>'
+    +'<div class="kpi blue"><div class="kl">Presupuestado</div><div class="kv">$'+totB.toLocaleString()+'</div><div class="ks" style="color:'+(variance>0?'var(--red)':'var(--green)')+'">'+(variance>0?'▲':'▼')+' $'+Math.abs(variance).toLocaleString()+'</div></div>'
     +'<div class="kpi gold"><div class="kl">CPL promedio</div><div class="kv">'+(totCPL?'$'+totCPL:'—')+'</div><div class="ks">'+totL+' leads</div></div>'
     +'<div class="kpi purple"><div class="kl">CPC WhatsApp</div><div class="kv">'+(totWPC?'$'+totWPC:'—')+'</div><div class="ks">'+totW+' contactos</div></div>'
     +'<div class="kpi '+(totEff?totEff<=100?'green':'red':'neutral')+'"><div class="kl">Eficiencia</div><div class="kv">'+(totEff?totEff+'%':'—')+'</div><div class="ks">efec/pres</div></div>'
-    +'<div class="kpi neutral" id="kpi-calendarizado"><div class="kl">Calendario</div><div class="kv" id="kpi-cal-valor">...</div><div class="ks" id="kpi-cal-sub">Calculando...</div></div>'
     +'</div>';
 
   html+='<div class="cg">';
@@ -1419,7 +1324,6 @@ function renderFinanciero(camps,el){
   }
 
   el.innerHTML=html;
-  actualizarCalendarizado(totE);
 }
 
 function renderOperativo(camps,el){
@@ -1731,8 +1635,8 @@ async function runAI(){
 function openImport(){document.getElementById('mod-import').classList.add('on');document.getElementById('import-body').innerHTML='<p style="font-size:12px;color:var(--dim)">Cargando...</p>';loadCalData();}
 function closeImport(){document.getElementById('mod-import').classList.remove('on');}
 
-// ── IMPORTAR DESDE META (CSV) ──────────────────────────
-let metaImportRows=[]; // filas parseadas + matcheo, listas para aplicar
+// ── IMPORTAR DESDE META (CSV/Excel) ──────────────────────
+let metaImportRows=[];
 
 function openImportMeta(){
   document.getElementById('mod-import-meta').classList.add('on');
@@ -1747,9 +1651,6 @@ function openImportMeta(){
 function closeImportMeta(){document.getElementById('mod-import-meta').classList.remove('on');}
 
 function repairDoubleQuotedCSV(text){
-  // Algunos exports (ej. vía Gmail/Sheets) vienen con cada línea entera
-  // envuelta en un par de comillas extra, y las comillas originales
-  // dobladas ("" en vez de "). Esto la deshace, línea por línea.
   const lines=text.split(/\r\n|\n/);
   const fixed=lines.map(function(line){
     if(line.length>=2 && line[0]==='"' && line[line.length-1]==='"'){
@@ -1766,7 +1667,6 @@ function parseCSV(text){
     text=repairDoubleQuotedCSV(text);
     window._csvFueReparado=true;
   }
-  // Parser simple de CSV con soporte de campos entre comillas (incluye comillas escapadas "")
   const rows=[]; let row=[]; let field=''; let inQuotes=false;
   for(let i=0;i<text.length;i++){
     const c=text[i], next=text[i+1];
@@ -1777,7 +1677,7 @@ function parseCSV(text){
     } else {
       if(c==='"') inQuotes=true;
       else if(c===','){ row.push(field); field=''; }
-      else if(c==='\r'){ /* ignorar */ }
+      else if(c==='\r'){ }
       else if(c==='\n'){ row.push(field); rows.push(row); row=[]; field=''; }
       else field+=c;
     }
@@ -1792,165 +1692,17 @@ function parseCSV(text){
   });
 }
 
-const LEADS_SOURCES_IMPORT=[
-  {id:'ing', label:'Ingeniería', url:'https://script.google.com/macros/s/AKfycbzU2GRxL87N47Jf0QMMBXy_2xZe98DBP-vbZSYnvXtE92c-4mqX8jveI-jxrogRPolS6g/exec?key=geo2026panel'},
-  {id:'agro', label:'AGRO', url:'https://script.google.com/macros/s/AKfycbyMoVCD8aapFbR4kCgC_G-fQjU5Aye9rR7LZbxPraecsHqGzK02A5n2kdUCqylZcSBw/exec?key=geo2026panel'}
-];
-
-// ── TRAER RESULTADOS DE LEADS (dentro del formulario normal) ──
-// Busca, por nombre exacto, la campaña en Sheets (Ingeniería o AGRO)
-// y completa Leads/Calificación solos. Para AGRO, solo matchea
-// campañas con pestaña propia (hoja === producto) — las que todavía
-// viven en la hoja compartida del formulario no se pueden identificar
-// una por una, así que quedan afuera de este auto-completado.
-// ── OBJETIVOS Q4 (Agosto–Diciembre 2026) ────────────────
-const OBJ_START='2026-08-01', OBJ_END='2026-12-31';
-function fechaEnObjetivo(f){ return !!f && f>=OBJ_START && f<=OBJ_END; }
-
-// Suma porDiaPrioridad de un set de campañas de Leads (API en vivo),
-// filtrando solo los días dentro del rango del objetivo. filtro es
-// una función opcional (campaña)=>bool para quedarse solo con las
-// que matchean (ej. por nombre de producto).
-function sumarPrioridadesEnRango(campanas, filtro){
-  var tot={ALTA:0,MEDIA:0,BAJA:0,DESCARTAR:0}, total=0;
-  (campanas||[]).forEach(function(c){
-    if(filtro && !filtro(c)) return;
-    var pdp=c.porDiaPrioridad||{};
-    Object.keys(pdp).forEach(function(dia){
-      if(!fechaEnObjetivo(dia)) return;
-      var d=pdp[dia];
-      ['ALTA','MEDIA','BAJA','DESCARTAR'].forEach(function(k){ var n=d[k]||0; tot[k]+=n; total+=n; });
-    });
+function parseExcelMeta(arrayBuffer){
+  const wb=XLSX.read(arrayBuffer,{type:'array'});
+  const ws=wb.Sheets[wb.SheetNames[0]];
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+  if(!aoa.length) return [];
+  const headers=aoa[0].map(function(h){ return String(h||'').trim(); });
+  return aoa.slice(1).filter(function(r){ return r.length>1; }).map(function(r){
+    const o={};
+    headers.forEach(function(h,i){ o[h]=r[i]!==undefined?String(r[i]):''; });
+    return o;
   });
-  return {porPrioridad:tot, total:total};
-}
-function contieneTexto(campo, texto){ return (campo||'').toLowerCase().indexOf(texto.toLowerCase())>=0; }
-
-async function renderObjetivos(){
-  var el=document.getElementById('objetivos-content');
-  if(!el) return;
-  el.innerHTML='<p style="font-size:12px;color:var(--dim)">Calculando objetivos...</p>';
-
-  // Traer Leads en vivo (Ingeniería + AGRO)
-  var ing={campanas:[]}, agro={campanas:[]};
-  try{
-    var rI=await fetch(LEADS_SOURCES_IMPORT[0].url); ing=await rI.json();
-  }catch(e){ console.error('Error Leads Ingeniería', e); }
-  try{
-    var rA=await fetch(LEADS_SOURCES_IMPORT[1].url); agro=await rA.json();
-  }catch(e){ console.error('Error Leads AGRO', e); }
-
-  // Campañas y ventas locales dentro del rango del objetivo
-  var campsObj=G.campaigns.filter(function(c){ return fechaEnObjetivo(c.fecha) && !c.cancelada; });
-  var ventasObj=G.ventas.filter(function(v){ return fechaEnObjetivo(v.fecha); });
-  var campsAgroObj=campsObj.filter(function(c){ return pArea(c.producto)==='AGRO'; });
-
-  // Fecha del gasto más reciente cargado, para las 2 métricas que dependen de eso
-  var ultimoGasto=null;
-  campsObj.forEach(function(c){
-    if(c.effTotal!=null && c.updatedAt && (!ultimoGasto || c.updatedAt>ultimoGasto)) ultimoGasto=c.updatedAt;
-  });
-  var freshness = ultimoGasto ? 'Gasto actualizado por última vez: '+fDate(ultimoGasto.slice(0,10))
-    : 'Todavía no hay gasto cargado en este período.';
-
-  // ── Cálculo de cada objetivo ──
-  var ingQ = sumarPrioridadesEnRango(ing.campanas);
-  var pctIng = ingQ.total ? Math.round(ingQ.porPrioridad.ALTA/ingQ.total*100) : 0;
-
-  var gastoAgro=0, wppAgro=0;
-  campsAgroObj.forEach(function(c){ if(c.effTotal) gastoAgro+=c.effTotal; if(c.wpp) wppAgro+=c.wpp; });
-  var cplAgro = wppAgro ? Math.round((gastoAgro/wppAgro)*100)/100 : null;
-
-  var ventasCount = ventasObj.length;
-  var revenueQ = 0; ventasObj.forEach(function(v){ if(v.monto) revenueQ+=v.monto; });
-
-  var budQ=0, effQ=0;
-  campsObj.forEach(function(c){ if(c.budTotal) budQ+=c.budTotal; if(c.effTotal) effQ+=c.effTotal; });
-  var pctEjec = budQ ? Math.round(effQ/budQ*100) : null;
-
-  var eventosCount = campsObj.filter(function(c){ return c.modo==='Evento'; }).length;
-
-  var topxQ = sumarPrioridadesEnRango(agro.campanas, function(c){ return contieneTexto(c.producto,'topxgun') || contieneTexto(c.hoja,'topxgun'); });
-  var pctTopx = topxQ.total ? Math.round(topxQ.porPrioridad.ALTA/topxQ.total*100) : 0;
-
-  var weedQ = sumarPrioridadesEnRango(agro.campanas, function(c){ return contieneTexto(c.producto,'weed') || contieneTexto(c.hoja,'weed'); });
-
-  var objetivos=[
-    { titulo:'Calidad de leads Ingeniería', metrica:'% ALTA sobre total leads', meta:40, base:'~30%', valor:pctIng, unidad:'%', invertido:false, dato:ingQ.total+' leads en el período' },
-    { titulo:'CPL promedio AGRO', metrica:'Costo por lead WPP', meta:3.50, base:'$4,47', valor:cplAgro, unidad:'$', invertido:true, dato:freshness },
-    { titulo:'Ventas atribuidas', metrica:'Cierres en el período', meta:6, base:'4 ventas', valor:ventasCount, unidad:'', invertido:false, dato:ventasCount+' venta'+(ventasCount!==1?'s':'')+' cargada'+(ventasCount!==1?'s':'') },
-    { titulo:'Revenue atribuido a campañas', metrica:'Facturación total atribuida', meta:60000, base:'$45.011', valor:revenueQ, unidad:'$', invertido:false, dato:'' },
-    { titulo:'Ejecución presupuestaria', metrica:'% de presupuesto ejecutado', meta:90, base:'78,8%', valor:pctEjec, unidad:'%', invertido:false, dato:freshness },
-    { titulo:'Campaña-evento fuera de Agroactiva', metrica:'Campañas de evento ejecutadas', meta:2, base:'1', valor:eventosCount, unidad:'', invertido:false, dato:'Marcadas con Modo = "Evento"' },
-    { titulo:'Calidad TopXGun WPP', metrica:'% ALTA leads TopXGun', meta:25, base:'8%', valor:pctTopx, unidad:'%', invertido:false, dato:topxQ.total+' leads en el período' },
-    { titulo:'Volumen Weed-It con calidad', metrica:'Leads WPP ALTA de Weed-It', meta:40, base:'~35', valor:weedQ.porPrioridad.ALTA, unidad:'', invertido:false, dato:weedQ.total+' leads totales en el período' }
-  ];
-
-  var html='<div class="notice">Período: 1 de agosto al 31 de diciembre 2026. Se calcula con los datos que haya cargados en este momento — no se actualiza solo, tocá "Actualizar" cuando quieras ver el estado más reciente.</div>';
-  html+='<div style="display:flex;flex-direction:column;gap:12px">';
-  objetivos.forEach(function(o,i){
-    var valorMostrado = o.valor==null ? '—' : (o.unidad==='$' ? '$'+o.valor.toLocaleString() : o.unidad==='%' ? o.valor+'%' : o.valor);
-    var metaMostrado = o.unidad==='$' ? '$'+o.meta.toLocaleString() : o.unidad==='%' ? o.meta+'%' : o.meta;
-    var pct = o.valor==null ? 0 : o.invertido
-      ? (o.valor<=o.meta ? 100 : Math.max(0, Math.round(o.meta/o.valor*100)))
-      : Math.min(100, Math.round(o.valor/o.meta*100));
-    var cumplido = o.valor!=null && (o.invertido ? o.valor<=o.meta : o.valor>=o.meta);
-    var color = o.valor==null ? 'var(--faint)' : cumplido ? 'var(--green)' : pct>=50 ? 'var(--gold)' : 'var(--red)';
-    html+='<div class="card">'
-      +'<div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">'
-      +'<div><div style="font-size:13px;font-weight:600">'+(i+1)+'. '+o.titulo+'</div>'
-      +'<div style="font-size:10px;color:var(--dim);margin-top:2px">'+o.metrica+'</div></div>'
-      +'<div style="text-align:right"><span style="font-family:var(--serif);font-size:22px;color:'+color+'">'+valorMostrado+'</span>'
-      +'<span style="font-size:11px;color:var(--dim)"> / '+metaMostrado+'</span></div>'
-      +'</div>'
-      +'<div style="height:8px;background:var(--muted);border-radius:20px;overflow:hidden;margin-top:10px"><div style="width:'+pct+'%;height:100%;background:'+color+';border-radius:20px"></div></div>'
-      +'<div style="display:flex;justify-content:space-between;margin-top:6px">'
-      +'<span style="font-size:10px;color:var(--faint)">Base Q2/Q3: '+o.base+'</span>'
-      +(o.dato?'<span style="font-size:10px;color:var(--faint)">'+o.dato+'</span>':'')
-      +'</div>'
-      +'</div>';
-  });
-  html+='</div>';
-  el.innerHTML=html;
-}
-
-async function traerResultadosLeads(){
-  const nombre=(gv('f-meta-nombre')||'').trim();
-  const status=document.getElementById('leads-fetch-status');
-  if(!nombre){ alert('Primero completá "Nombre de campaña (Meta)".'); return; }
-  if(status) status.textContent='Buscando en Ingeniería y AGRO...';
-
-  let encontrada=null, areaEncontrada='';
-  for(const src of LEADS_SOURCES_IMPORT){
-    try{
-      const r=await fetch(src.url);
-      const j=await r.json();
-      const camps=j.campanas||[];
-      const match=camps.find(function(c){
-        if(!c.total) return false;
-        if(src.id==='agro' && c.hoja!==c.producto) return false; // hoja compartida, no matchea 1 a 1
-        return (c.hoja||'').trim().toLowerCase()===nombre.toLowerCase();
-      });
-      if(match){ encontrada=match; areaEncontrada=src.label; break; }
-    }catch(e){ console.error('Error consultando '+src.label, e); }
-  }
-
-  if(!encontrada){
-    if(status) status.innerHTML='<span style="color:var(--red)">✕ No se encontró ninguna campaña con ese nombre exacto en Sheets. Revisá que coincida con el nombre de la pestaña.</span>';
-    return;
-  }
-
-  const p=encontrada.porPrioridad||{};
-  document.getElementById('f-leads').value=encontrada.total;
-  document.getElementById('f-leads-alta').value=p.ALTA||0;
-  document.getElementById('f-leads-media').value=p.MEDIA||0;
-  document.getElementById('f-leads-baja').value=p.BAJA||0;
-  // Si la sección de calificación estaba oculta, la abrimos para que se vea lo que se cargó
-  var pf=document.getElementById('priority-fields');
-  var btn=document.getElementById('btn-priority');
-  if(pf && pf.style.display==='none' && btn){ pf.style.display='contents'; btn.textContent='▲ Ocultar'; }
-
-  if(status) status.innerHTML='<span style="color:var(--green)">✓ '+areaEncontrada+': '+encontrada.total+' leads (ALTA '+(p.ALTA||0)+' / MEDIA '+(p.MEDIA||0)+' / BAJA '+(p.BAJA||0)+' / DESCARTAR '+(p.DESCARTAR||0)+')</span>';
 }
 
 function handleMetaCSV(file){
@@ -1974,27 +1726,10 @@ function handleMetaCSV(file){
   else reader.readAsText(file,'UTF-8');
 }
 
-function parseExcelMeta(arrayBuffer){
-  const wb=XLSX.read(arrayBuffer,{type:'array'});
-  const ws=wb.Sheets[wb.SheetNames[0]];
-  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
-  if(!aoa.length) return [];
-  const headers=aoa[0].map(function(h){ return String(h||'').trim(); });
-  return aoa.slice(1).filter(function(r){ return r.length>1; }).map(function(r){
-    const o={};
-    headers.forEach(function(h,i){ o[h]=r[i]!==undefined?String(r[i]):''; });
-    return o;
-  });
-}
-
 async function procesarFilasMeta(filas){
   const statusEl=document.getElementById('import-status');
   if(statusEl) statusEl.textContent='Cruzando con el sistema de Leads (Ingeniería)...';
 
-  // Traemos los leads de Ingeniería en vivo, para cruzar por nombre de hoja/campaña.
-  // AGRO queda afuera de este cruce automático: ahí los leads se agrupan por
-  // producto y no por campaña individual, así que asignarlos de forma automática
-  // podría contar de más si hay varias campañas del mismo producto.
   let ingLeadsMap={};
   try{
     const r=await fetch(LEADS_SOURCES_IMPORT[0].url);
@@ -2012,7 +1747,6 @@ async function procesarFilasMeta(filas){
     return f['Nombre de la campaña'] && gasto>0;
   });
 
-  // Campañas existentes que NO son doble versión (esas quedan siempre afuera)
   const candidatas=G.campaigns.filter(function(c){ return !c.dobleVersion; });
 
   metaImportRows=util.map(function(f){
@@ -2173,6 +1907,204 @@ async function aplicarImportMeta(){
   renderLista();
   if(document.getElementById('page-dashboard').classList.contains('on')) renderDash();
   alert('Listo: '+actualizar.length+' campaña(s) actualizadas y '+crear.length+' creadas.');
+}
+
+// ── TRAER RESULTADOS DE LEADS (formulario normal) ────
+async function traerResultadosLeads(){
+  const nombre=(gv('f-meta-nombre')||'').trim();
+  const status=document.getElementById('leads-fetch-status');
+  if(!nombre){ alert('Primero completá "Nombre de campaña (Meta)".'); return; }
+  if(status) status.textContent='Buscando en Ingeniería y AGRO...';
+
+  let encontrada=null, areaEncontrada='';
+  for(const src of LEADS_SOURCES_IMPORT){
+    try{
+      const r=await fetch(src.url);
+      const j=await r.json();
+      const camps=j.campanas||[];
+      const match=camps.find(function(c){
+        if(!c.total) return false;
+        if(src.id==='agro' && c.hoja!==c.producto) return false;
+        return (c.hoja||'').trim().toLowerCase()===nombre.toLowerCase();
+      });
+      if(match){ encontrada=match; areaEncontrada=src.label; break; }
+    }catch(e){ console.error('Error consultando '+src.label, e); }
+  }
+
+  if(!encontrada){
+    if(status) status.innerHTML='<span style="color:var(--red)">✕ No se encontró ninguna campaña con ese nombre exacto en Sheets. Revisá que coincida con el nombre de la pestaña.</span>';
+    return;
+  }
+
+  const p=encontrada.porPrioridad||{};
+  document.getElementById('f-leads').value=encontrada.total;
+  document.getElementById('f-leads-alta').value=p.ALTA||0;
+  document.getElementById('f-leads-media').value=p.MEDIA||0;
+  document.getElementById('f-leads-baja').value=p.BAJA||0;
+  var pf=document.getElementById('priority-fields');
+  var btn=document.getElementById('btn-priority');
+  if(pf && pf.style.display==='none' && btn){ pf.style.display='contents'; btn.textContent='▲ Ocultar'; }
+
+  if(status) status.innerHTML='<span style="color:var(--green)">✓ '+areaEncontrada+': '+encontrada.total+' leads (ALTA '+(p.ALTA||0)+' / MEDIA '+(p.MEDIA||0)+' / BAJA '+(p.BAJA||0)+' / DESCARTAR '+(p.DESCARTAR||0)+')</span>';
+}
+
+const SOLICITUD_URL='https://script.google.com/macros/s/AKfycbwsKieu2gP9bgWQCBNc6zabx8VVQAkLxX5Hw9MCDCOZfLqYgc9CAdZkJinUl8Bdn0cy/exec?key=geo2026panel';
+
+async function traerDatosSolicitud(){
+  const nombre=(gv('f-meta-nombre')||'').trim();
+  const status=document.getElementById('leads-fetch-status');
+  if(!nombre){ alert('Primero completá "Nombre de campaña (Meta)".'); return; }
+  if(status) status.textContent='Buscando en la hoja de Solicitudes...';
+
+  try{
+    const r=await fetch(SOLICITUD_URL);
+    const j=await r.json();
+    const solicitudes=j.solicitudes||[];
+    const match=solicitudes.find(function(s){
+      return s.estado==='APROBADO' && (s.nombreCampana||'').trim().toLowerCase()===nombre.toLowerCase();
+    });
+
+    if(!match){
+      const sinAprobar=solicitudes.find(function(s){ return (s.nombreCampana||'').trim().toLowerCase()===nombre.toLowerCase(); });
+      if(status){
+        status.innerHTML = sinAprobar
+          ? '<span style="color:var(--gold)">⚠ Existe una solicitud con ese nombre, pero su estado es "'+(sinAprobar.estado||'sin definir')+'", no APROBADO — no se importa.</span>'
+          : '<span style="color:var(--red)">✕ No se encontró ninguna solicitud con ese nombre exacto.</span>';
+      }
+      return;
+    }
+
+    if(match.fechaInicio){
+      document.getElementById('f-fecha-plan').value=match.fechaInicio;
+      document.getElementById('f-fecha-plan').dataset.locked='1';
+      calcDesvio();
+    }
+    if(match.presupuestoTotal!=null) document.getElementById('f-bud-total').value=match.presupuestoTotal;
+    if(match.duracionDias!=null) document.getElementById('f-bud-dias').value=match.duracionDias;
+    calcBudget('bud');
+
+    if(status) status.innerHTML='<span style="color:var(--green)">✓ Solicitud aprobada por '+(match.aprobadoPor||'—')+': $'+ (match.presupuestoTotal||0) +' · '+(match.duracionDias||'—')+' días · inicio '+fDate(match.fechaInicio)+'</span>';
+  }catch(e){
+    console.error('Error consultando Solicitud de pauta', e);
+    if(status) status.innerHTML='<span style="color:var(--red)">✕ Error al consultar la hoja de Solicitudes.</span>';
+  }
+}
+
+
+const LEADS_SOURCES_IMPORT=[
+  {id:'ing', label:'Ingeniería', url:'https://script.google.com/macros/s/AKfycbzU2GRxL87N47Jf0QMMBXy_2xZe98DBP-vbZSYnvXtE92c-4mqX8jveI-jxrogRPolS6g/exec?key=geo2026panel'},
+  {id:'agro', label:'AGRO', url:'https://script.google.com/macros/s/AKfycbyMoVCD8aapFbR4kCgC_G-fQjU5Aye9rR7LZbxPraecsHqGzK02A5n2kdUCqylZcSBw/exec?key=geo2026panel'}
+];
+
+// ── OBJETIVOS Q4 (Agosto–Diciembre 2026) ────────────────
+const OBJ_START='2026-08-01', OBJ_END='2026-12-31';
+function fechaEnObjetivo(f){ return !!f && f>=OBJ_START && f<=OBJ_END; }
+
+// Suma porDiaPrioridad de un set de campañas de Leads (API en vivo),
+// filtrando solo los días dentro del rango del objetivo. filtro es
+// una función opcional (campaña)=>bool para quedarse solo con las
+// que matchean (ej. por nombre de producto).
+function sumarPrioridadesEnRango(campanas, filtro){
+  var tot={ALTA:0,MEDIA:0,BAJA:0,DESCARTAR:0}, total=0;
+  (campanas||[]).forEach(function(c){
+    if(filtro && !filtro(c)) return;
+    var pdp=c.porDiaPrioridad||{};
+    Object.keys(pdp).forEach(function(dia){
+      if(!fechaEnObjetivo(dia)) return;
+      var d=pdp[dia];
+      ['ALTA','MEDIA','BAJA','DESCARTAR'].forEach(function(k){ var n=d[k]||0; tot[k]+=n; total+=n; });
+    });
+  });
+  return {porPrioridad:tot, total:total};
+}
+function contieneTexto(campo, texto){ return (campo||'').toLowerCase().indexOf(texto.toLowerCase())>=0; }
+
+async function renderObjetivos(){
+  var el=document.getElementById('objetivos-content');
+  if(!el) return;
+  el.innerHTML='<p style="font-size:12px;color:var(--dim)">Calculando objetivos...</p>';
+
+  // Traer Leads en vivo (Ingeniería + AGRO)
+  var ing={campanas:[]}, agro={campanas:[]};
+  try{
+    var rI=await fetch(LEADS_SOURCES_IMPORT[0].url); ing=await rI.json();
+  }catch(e){ console.error('Error Leads Ingeniería', e); }
+  try{
+    var rA=await fetch(LEADS_SOURCES_IMPORT[1].url); agro=await rA.json();
+  }catch(e){ console.error('Error Leads AGRO', e); }
+
+  // Campañas y ventas locales dentro del rango del objetivo
+  var campsObj=G.campaigns.filter(function(c){ return fechaEnObjetivo(c.fecha) && !c.cancelada; });
+  var ventasObj=G.ventas.filter(function(v){ return fechaEnObjetivo(v.fecha); });
+  var campsAgroObj=campsObj.filter(function(c){ return pArea(c.producto)==='AGRO'; });
+
+  // Fecha del gasto más reciente cargado, para las 2 métricas que dependen de eso
+  var ultimoGasto=null;
+  campsObj.forEach(function(c){
+    if(c.effTotal!=null && c.updatedAt && (!ultimoGasto || c.updatedAt>ultimoGasto)) ultimoGasto=c.updatedAt;
+  });
+  var freshness = ultimoGasto ? 'Gasto actualizado por última vez: '+fDate(ultimoGasto.slice(0,10))
+    : 'Todavía no hay gasto cargado en este período.';
+
+  // ── Cálculo de cada objetivo ──
+  var ingQ = sumarPrioridadesEnRango(ing.campanas);
+  var pctIng = ingQ.total ? Math.round(ingQ.porPrioridad.ALTA/ingQ.total*100) : 0;
+
+  var gastoAgro=0, wppAgro=0;
+  campsAgroObj.forEach(function(c){ if(c.effTotal) gastoAgro+=c.effTotal; if(c.wpp) wppAgro+=c.wpp; });
+  var cplAgro = wppAgro ? Math.round((gastoAgro/wppAgro)*100)/100 : null;
+
+  var ventasCount = ventasObj.length;
+  var revenueQ = 0; ventasObj.forEach(function(v){ if(v.monto) revenueQ+=v.monto; });
+
+  var budQ=0, effQ=0;
+  campsObj.forEach(function(c){ if(c.budTotal) budQ+=c.budTotal; if(c.effTotal) effQ+=c.effTotal; });
+  var pctEjec = budQ ? Math.round(effQ/budQ*100) : null;
+
+  var eventosCount = campsObj.filter(function(c){ return c.modo==='Evento'; }).length;
+
+  var topxQ = sumarPrioridadesEnRango(agro.campanas, function(c){ return contieneTexto(c.producto,'topxgun') || contieneTexto(c.hoja,'topxgun'); });
+  var pctTopx = topxQ.total ? Math.round(topxQ.porPrioridad.ALTA/topxQ.total*100) : 0;
+
+  var weedQ = sumarPrioridadesEnRango(agro.campanas, function(c){ return contieneTexto(c.producto,'weed') || contieneTexto(c.hoja,'weed'); });
+
+  var objetivos=[
+    { titulo:'Calidad de leads Ingeniería', metrica:'% ALTA sobre total leads', meta:40, base:'~30%', valor:pctIng, unidad:'%', invertido:false, dato:ingQ.total+' leads en el período' },
+    { titulo:'CPL promedio AGRO', metrica:'Costo por lead WPP', meta:3.50, base:'$4,47', valor:cplAgro, unidad:'$', invertido:true, dato:freshness },
+    { titulo:'Ventas atribuidas', metrica:'Cierres en el período', meta:6, base:'4 ventas', valor:ventasCount, unidad:'', invertido:false, dato:ventasCount+' venta'+(ventasCount!==1?'s':'')+' cargada'+(ventasCount!==1?'s':'') },
+    { titulo:'Revenue atribuido a campañas', metrica:'Facturación total atribuida', meta:60000, base:'$45.011', valor:revenueQ, unidad:'$', invertido:false, dato:'' },
+    { titulo:'Ejecución presupuestaria', metrica:'% de presupuesto ejecutado', meta:90, base:'78,8%', valor:pctEjec, unidad:'%', invertido:false, dato:freshness },
+    { titulo:'Campaña-evento fuera de Agroactiva', metrica:'Campañas de evento ejecutadas', meta:2, base:'1', valor:eventosCount, unidad:'', invertido:false, dato:'Marcadas con Modo = "Evento"' },
+    { titulo:'Calidad TopXGun WPP', metrica:'% ALTA leads TopXGun', meta:25, base:'8%', valor:pctTopx, unidad:'%', invertido:false, dato:topxQ.total+' leads en el período' },
+    { titulo:'Volumen Weed-It con calidad', metrica:'Leads WPP ALTA de Weed-It', meta:40, base:'~35', valor:weedQ.porPrioridad.ALTA, unidad:'', invertido:false, dato:weedQ.total+' leads totales en el período' }
+  ];
+
+  var html='<div class="notice">Período: 1 de agosto al 31 de diciembre 2026. Se calcula con los datos que haya cargados en este momento — no se actualiza solo, tocá "Actualizar" cuando quieras ver el estado más reciente.</div>';
+  html+='<div style="display:flex;flex-direction:column;gap:12px">';
+  objetivos.forEach(function(o,i){
+    var valorMostrado = o.valor==null ? '—' : (o.unidad==='$' ? '$'+o.valor.toLocaleString() : o.unidad==='%' ? o.valor+'%' : o.valor);
+    var metaMostrado = o.unidad==='$' ? '$'+o.meta.toLocaleString() : o.unidad==='%' ? o.meta+'%' : o.meta;
+    var pct = o.valor==null ? 0 : o.invertido
+      ? (o.valor<=o.meta ? 100 : Math.max(0, Math.round(o.meta/o.valor*100)))
+      : Math.min(100, Math.round(o.valor/o.meta*100));
+    var cumplido = o.valor!=null && (o.invertido ? o.valor<=o.meta : o.valor>=o.meta);
+    var color = o.valor==null ? 'var(--faint)' : cumplido ? 'var(--green)' : pct>=50 ? 'var(--gold)' : 'var(--red)';
+    html+='<div class="card">'
+      +'<div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">'
+      +'<div><div style="font-size:13px;font-weight:600">'+(i+1)+'. '+o.titulo+'</div>'
+      +'<div style="font-size:10px;color:var(--dim);margin-top:2px">'+o.metrica+'</div></div>'
+      +'<div style="text-align:right"><span style="font-family:var(--serif);font-size:22px;color:'+color+'">'+valorMostrado+'</span>'
+      +'<span style="font-size:11px;color:var(--dim)"> / '+metaMostrado+'</span></div>'
+      +'</div>'
+      +'<div style="height:8px;background:var(--muted);border-radius:20px;overflow:hidden;margin-top:10px"><div style="width:'+pct+'%;height:100%;background:'+color+';border-radius:20px"></div></div>'
+      +'<div style="display:flex;justify-content:space-between;margin-top:6px">'
+      +'<span style="font-size:10px;color:var(--faint)">Base Q2/Q3: '+o.base+'</span>'
+      +(o.dato?'<span style="font-size:10px;color:var(--faint)">'+o.dato+'</span>':'')
+      +'</div>'
+      +'</div>';
+  });
+  html+='</div>';
+  el.innerHTML=html;
 }
 
 document.getElementById('mod-import').onclick=function(e){if(e.target===e.currentTarget)closeImport();};
@@ -2604,79 +2536,8 @@ function renderVentas(){
     +'</tbody></table></div></div>';
 
   el.innerHTML=html;
-  renderConversionTasa(vs);
 }
 
-// ── TASA DE CONVERSIÓN REAL (Leads → Ventas) ─────────
-// Cruza por nombre exacto contra la hoja de Sheets. Funciona para
-// Ingeniería (siempre 1 a 1) y para AGRO solo en campañas con pestaña
-// propia (hoja === producto) — las que siguen viviendo en la hoja
-// compartida del formulario no se pueden identificar una por una.
-async function renderConversionTasa(vs){
-  var box=document.getElementById('ventas-conversion');
-  if(!box){
-    var el=document.getElementById('ventas-content');
-    if(!el) return;
-    el.insertAdjacentHTML('afterbegin','<div id="ventas-conversion"></div>');
-    box=document.getElementById('ventas-conversion');
-  }
-  var conLead=vs.filter(function(v){return v.leadPrioridad && v.campanaId;});
-  if(!conLead.length){ box.innerHTML=''; return; }
-  box.innerHTML='<div class="card"><div class="ct">Tasa de conversión real (Leads → Ventas)</div><p style="font-size:11px;color:var(--dim)">Calculando...</p></div>';
-
-  var ingMap={};
-  for(var i=0;i<LEADS_SOURCES_IMPORT.length;i++){
-    var src=LEADS_SOURCES_IMPORT[i];
-    try{
-      var r=await fetch(src.url);
-      var j=await r.json();
-      (j.campanas||[]).forEach(function(c){
-        if(!c.total) return;
-        if(src.id==='agro' && c.hoja!==c.producto) return; // hoja compartida, no matchea 1 a 1
-        ingMap[(c.hoja||'').trim().toLowerCase()]={total:c.total,porPrioridad:c.porPrioridad||{}};
-      });
-    }catch(e){ console.error('No se pudo leer Leads de '+src.label+' para conversión', e); }
-  }
-
-  // Agrupar ventas-con-lead por campaña + prioridad
-  var porCampPrio={};
-  conLead.forEach(function(v){
-    var camp=G.campaigns.find(function(c){return c.id===v.campanaId;});
-    if(!camp) return;
-    var key=camp.id+'::'+v.leadPrioridad;
-    if(!porCampPrio[key])porCampPrio[key]={camp:camp,prioridad:v.leadPrioridad,ventas:0,monto:0};
-    porCampPrio[key].ventas++;
-    if(v.monto)porCampPrio[key].monto+=v.monto;
-  });
-
-  var filas=Object.values(porCampPrio).map(function(g){
-    var leadsInfo=g.camp.metaNombre?ingMap[g.camp.metaNombre.trim().toLowerCase()]:null;
-    var totalLeadsPrio=leadsInfo?(leadsInfo.porPrioridad[g.prioridad]||0):null;
-    var tasa=totalLeadsPrio?Math.round(g.ventas/totalLeadsPrio*100):null;
-    return {codigo:g.camp.codigo,prioridad:g.prioridad,ventas:g.ventas,monto:g.monto,totalLeads:totalLeadsPrio,tasa:tasa};
-  }).sort(function(a,b){
-    var order={ALTA:0,MEDIA:1,BAJA:2,DESCARTAR:3};
-    return (order[a.prioridad]-order[b.prioridad])||b.tasa-a.tasa;
-  });
-
-  var leadColors={ALTA:'var(--green)',MEDIA:'var(--gold)',BAJA:'var(--red)',DESCARTAR:'var(--faint)'};
-  var html='<div class="card"><div class="ct">Tasa de conversión real (Leads → Ventas)</div>'
-    +'<div class="notice">Solo incluye campañas con "Nombre de campaña (Meta)" cargado y que coincida con una pestaña en Sheets — Ingeniería siempre, y AGRO solo si esa campaña tiene su propia pestaña (no la hoja compartida del formulario). Ventas sin lead marcado quedan afuera de esta tabla.</div>'
-    +'<table class="dt"><thead><tr><th>Campaña</th><th>Prioridad</th><th style="text-align:right">Leads totales</th><th style="text-align:right">Ventas originadas</th><th style="text-align:right">Facturación</th><th style="text-align:right">Tasa de conversión</th></tr></thead><tbody>'
-    +filas.map(function(f){
-      return '<tr><td style="font-size:11px">'+f.codigo+'</td>'
-        +'<td><span style="font-size:10px;font-weight:500;color:'+(leadColors[f.prioridad]||'var(--dim)')+'">'+f.prioridad+'</span></td>'
-        +'<td style="text-align:right">'+(f.totalLeads!=null?f.totalLeads:'<span style="color:var(--faint)">sin match</span>')+'</td>'
-        +'<td style="text-align:right">'+f.ventas+'</td>'
-        +'<td style="text-align:right;color:var(--green)">$'+f.monto.toLocaleString()+'</td>'
-        +'<td style="text-align:right;font-weight:500">'+(f.tasa!=null?f.tasa+'%':'—')+'</td>'
-        +'</tr>';
-    }).join('')
-    +'</tbody></table></div>';
-  box.innerHTML=html;
-}
-
-// ── VENTAS EXPORTS ───────────────────────────────────
 function exportVentasExcel(){
   if(!G.ventas.length){alert('No hay ventas para exportar.');return;}
 
