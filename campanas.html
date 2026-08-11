@@ -573,8 +573,11 @@ function renderForm(){
     +'<div class="field"><label>Código</label>'
     +'<div style="display:flex;gap:6px"><input type="text" id="f-codigo" value="'+v('codigo','')+'" placeholder="Auto..."><button class="btn btn-xs" type="button" onclick="updateCode(true)">↺</button></div></div>'
     +'<div class="field"><label>Nombre de campaña (Meta)</label>'
-    +'<input type="text" id="f-meta-nombre" value="'+v('metaNombre','')+'" placeholder="Igual al nombre en Meta Ads Manager">'
-    +'<span class="fhint">Copialo tal cual aparece en Meta Ads Manager. A partir de ahora, cargalo siempre — es lo que permite importar el gasto y los leads automáticamente.</span></div>'
+    +'<input type="text" id="f-meta-nombre" value="'+v('metaNombre','')+'" placeholder="Igual al nombre en Meta Ads Manager / al nombre de la pestaña en Sheets">'
+    +'<span class="fhint">Copialo tal cual aparece en Meta Ads Manager (o el nombre de la pestaña en Sheets). Se usa para importar gasto y traer los leads automáticamente.</span>'
+    +'<button type="button" class="btn btn-xs" style="margin-top:6px" onclick="traerResultadosLeads()">↺ Traer resultados de Leads</button>'
+    +'<span id="leads-fetch-status" style="font-size:10px;color:var(--dim);margin-top:4px;display:block"></span>'
+    +'</div>'
     +'<div class="field"><label>Fecha inicio planificada</label>'
     +'<input type="date" id="f-fecha-plan" value="'+(c?v('fechaPlan',v('fecha',today)):'')+'" onchange="this.dataset.locked=\'1\';calcDesvio()">'
     +'<span class="fhint">Del calendario. Se sincroniza con fecha de inicio.</span></div>'
@@ -1689,6 +1692,51 @@ const LEADS_SOURCES_IMPORT=[
   {id:'agro', label:'AGRO', url:'https://script.google.com/macros/s/AKfycbyMoVCD8aapFbR4kCgC_G-fQjU5Aye9rR7LZbxPraecsHqGzK02A5n2kdUCqylZcSBw/exec?key=geo2026panel'}
 ];
 
+// ── TRAER RESULTADOS DE LEADS (dentro del formulario normal) ──
+// Busca, por nombre exacto, la campaña en Sheets (Ingeniería o AGRO)
+// y completa Leads/Calificación solos. Para AGRO, solo matchea
+// campañas con pestaña propia (hoja === producto) — las que todavía
+// viven en la hoja compartida del formulario no se pueden identificar
+// una por una, así que quedan afuera de este auto-completado.
+async function traerResultadosLeads(){
+  const nombre=(gv('f-meta-nombre')||'').trim();
+  const status=document.getElementById('leads-fetch-status');
+  if(!nombre){ alert('Primero completá "Nombre de campaña (Meta)".'); return; }
+  if(status) status.textContent='Buscando en Ingeniería y AGRO...';
+
+  let encontrada=null, areaEncontrada='';
+  for(const src of LEADS_SOURCES_IMPORT){
+    try{
+      const r=await fetch(src.url);
+      const j=await r.json();
+      const camps=j.campanas||[];
+      const match=camps.find(function(c){
+        if(!c.total) return false;
+        if(src.id==='agro' && c.hoja!==c.producto) return false; // hoja compartida, no matchea 1 a 1
+        return (c.hoja||'').trim().toLowerCase()===nombre.toLowerCase();
+      });
+      if(match){ encontrada=match; areaEncontrada=src.label; break; }
+    }catch(e){ console.error('Error consultando '+src.label, e); }
+  }
+
+  if(!encontrada){
+    if(status) status.innerHTML='<span style="color:var(--red)">✕ No se encontró ninguna campaña con ese nombre exacto en Sheets. Revisá que coincida con el nombre de la pestaña.</span>';
+    return;
+  }
+
+  const p=encontrada.porPrioridad||{};
+  document.getElementById('f-leads').value=encontrada.total;
+  document.getElementById('f-leads-alta').value=p.ALTA||0;
+  document.getElementById('f-leads-media').value=p.MEDIA||0;
+  document.getElementById('f-leads-baja').value=p.BAJA||0;
+  // Si la sección de calificación estaba oculta, la abrimos para que se vea lo que se cargó
+  var pf=document.getElementById('priority-fields');
+  var btn=document.getElementById('btn-priority');
+  if(pf && pf.style.display==='none' && btn){ pf.style.display='contents'; btn.textContent='▲ Ocultar'; }
+
+  if(status) status.innerHTML='<span style="color:var(--green)">✓ '+areaEncontrada+': '+encontrada.total+' leads (ALTA '+(p.ALTA||0)+' / MEDIA '+(p.MEDIA||0)+' / BAJA '+(p.BAJA||0)+' / DESCARTAR '+(p.DESCARTAR||0)+')</span>';
+}
+
 function handleMetaCSV(file){
   if(!file) return;
   const body=document.getElementById('import-meta-body');
@@ -2344,10 +2392,10 @@ function renderVentas(){
 }
 
 // ── TASA DE CONVERSIÓN REAL (Leads → Ventas) ─────────
-// Solo confiable para Ingeniería: ahí cada campaña de Meta coincide 1 a 1
-// con una hoja de Sheets, así que podemos saber cuántos leads ALTA/MEDIA/BAJA
-// tuvo esa campaña puntual. En AGRO los leads se agrupan por producto, no
-// por campaña individual, así que esta sección no los incluye.
+// Cruza por nombre exacto contra la hoja de Sheets. Funciona para
+// Ingeniería (siempre 1 a 1) y para AGRO solo en campañas con pestaña
+// propia (hoja === producto) — las que siguen viviendo en la hoja
+// compartida del formulario no se pueden identificar una por una.
 async function renderConversionTasa(vs){
   var box=document.getElementById('ventas-conversion');
   if(!box){
@@ -2361,14 +2409,18 @@ async function renderConversionTasa(vs){
   box.innerHTML='<div class="card"><div class="ct">Tasa de conversión real (Leads → Ventas)</div><p style="font-size:11px;color:var(--dim)">Calculando...</p></div>';
 
   var ingMap={};
-  try{
-    var r=await fetch('https://script.google.com/macros/s/AKfycbzU2GRxL87N47Jf0QMMBXy_2xZe98DBP-vbZSYnvXtE92c-4mqX8jveI-jxrogRPolS6g/exec?key=geo2026panel');
-    var j=await r.json();
-    (j.campanas||[]).forEach(function(c){
-      if(!c.total) return;
-      ingMap[(c.hoja||'').trim().toLowerCase()]={total:c.total,porPrioridad:c.porPrioridad||{}};
-    });
-  }catch(e){ console.error('No se pudo leer Leads de Ingeniería para conversión', e); }
+  for(var i=0;i<LEADS_SOURCES_IMPORT.length;i++){
+    var src=LEADS_SOURCES_IMPORT[i];
+    try{
+      var r=await fetch(src.url);
+      var j=await r.json();
+      (j.campanas||[]).forEach(function(c){
+        if(!c.total) return;
+        if(src.id==='agro' && c.hoja!==c.producto) return; // hoja compartida, no matchea 1 a 1
+        ingMap[(c.hoja||'').trim().toLowerCase()]={total:c.total,porPrioridad:c.porPrioridad||{}};
+      });
+    }catch(e){ console.error('No se pudo leer Leads de '+src.label+' para conversión', e); }
+  }
 
   // Agrupar ventas-con-lead por campaña + prioridad
   var porCampPrio={};
@@ -2393,7 +2445,7 @@ async function renderConversionTasa(vs){
 
   var leadColors={ALTA:'var(--green)',MEDIA:'var(--gold)',BAJA:'var(--red)',DESCARTAR:'var(--faint)'};
   var html='<div class="card"><div class="ct">Tasa de conversión real (Leads → Ventas)</div>'
-    +'<div class="notice">Solo incluye campañas de Ingeniería con "Nombre de campaña (Meta)" cargado — es el único caso donde se puede cruzar 1 a 1 con Sheets. AGRO y ventas sin lead marcado quedan afuera de esta tabla.</div>'
+    +'<div class="notice">Solo incluye campañas con "Nombre de campaña (Meta)" cargado y que coincida con una pestaña en Sheets — Ingeniería siempre, y AGRO solo si esa campaña tiene su propia pestaña (no la hoja compartida del formulario). Ventas sin lead marcado quedan afuera de esta tabla.</div>'
     +'<table class="dt"><thead><tr><th>Campaña</th><th>Prioridad</th><th style="text-align:right">Leads totales</th><th style="text-align:right">Ventas originadas</th><th style="text-align:right">Facturación</th><th style="text-align:right">Tasa de conversión</th></tr></thead><tbody>'
     +filas.map(function(f){
       return '<tr><td style="font-size:11px">'+f.codigo+'</td>'
