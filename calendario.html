@@ -199,6 +199,24 @@ td.prod-cell.selected .cell-pill{outline:2px solid rgba(90,61,184,.5);outline-of
   </div>
 </div>
 
+<!-- MODAL firma de cambios -->
+<div class="modal-overlay" id="firma-modal-overlay">
+  <div class="modal-box" style="max-width:480px">
+    <div class="modal-title">Confirmar cambios al calendario</div>
+    <div class="modal-sub">Este calendario ya tenía una versión guardada. Lo que sigue queda firmado a tu nombre en el historial.</div>
+    <div id="firma-modal-cambios" style="max-height:180px;overflow-y:auto;border:1px solid var(--border-light);border-radius:var(--radius);padding:8px 10px;margin-bottom:12px;font-size:11px"></div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);display:block;margin-bottom:5px">Motivo del cambio (opcional)</label>
+      <input type="text" id="firma-motivo" placeholder="Ej: se reasignó presupuesto no ejecutado..." style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);font-family:var(--mono);font-size:12px;background:var(--surface);color:var(--text);outline:none">
+    </div>
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:14px">Firma: <strong id="firma-nombre" style="color:var(--text)">—</strong></div>
+    <div class="modal-footer">
+      <button class="btn btn-sm" onclick="cancelarFirma()">Cancelar</button>
+      <button class="btn btn-dark btn-sm" style="margin-left:auto" onclick="confirmarFirma()">✓ Firmar y guardar</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const DAYS=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
 const MONTHS=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -263,37 +281,155 @@ async function syncLoad(){
   }
 }
 
-async function syncSave(){
-  setSyncStatus('saving','Guardando...');
+// Compara las celdas de "antes" vs "después" y arma la lista de
+// cambios puntuales (día + producto + qué decía antes / qué dice ahora)
+function diffCells(cellsOld, cellsNew, products, campaigns){
+  cellsOld = cellsOld || {};
+  cellsNew = cellsNew || {};
+  var claves = {};
+  Object.keys(cellsOld).forEach(function(k){ claves[k]=true; });
+  Object.keys(cellsNew).forEach(function(k){ claves[k]=true; });
+  var cambios = [];
+  Object.keys(claves).forEach(function(k){
+    var antes = cellsOld[k], despues = cellsNew[k];
+    if(antes===despues) return;
+    var parts = k.split('-');
+    var dia = parseInt(parts[2]);
+    var pid = parts.slice(3).join('-');
+    var prod = products.find(function(p){return p.id===pid;});
+    var tipoAntes = antes ? ((campaigns.find(function(c){return c.id===antes;})||{}).name || antes) : null;
+    var tipoDespues = despues ? ((campaigns.find(function(c){return c.id===despues;})||{}).name || despues) : null;
+    cambios.push({
+      dia: dia,
+      producto: prod ? prod.name : pid,
+      antes: tipoAntes,
+      despues: tipoDespues,
+      accion: !antes ? 'agregada' : !despues ? 'eliminada' : 'cambiada'
+    });
+  });
+  cambios.sort(function(a,b){ return a.dia-b.dia; });
+  return cambios;
+}
+
+var _pendienteGuardado = null; // { key, nuevo, servidor, cambios }
+
+async function doSave(){
+  var btns=document.querySelectorAll('.save-btn');
+  btns.forEach(function(b){b.textContent='Revisando...';b.disabled=true;});
+  await prepararGuardado();
+  btns.forEach(function(b){b.disabled=false;});
+  if(!document.getElementById('firma-modal-overlay').classList.contains('open')){
+    btns.forEach(function(b){b.textContent='Guardado ✓';});
+    setTimeout(function(){btns.forEach(function(b){b.textContent='Guardar';});},2000);
+  }else{
+    btns.forEach(function(b){b.textContent='Guardar';});
+  }
+}
+
+async function prepararGuardado(){
+  setSyncStatus('saving','Revisando cambios...');
   var key=calKey(S.month,S.year);
-  GLOBAL.calendars[key]={
+  var user='', role='';
+  try{ user = sessionStorage.getItem('panel_user')||''; role = sessionStorage.getItem('panel_role')||''; }catch(e){}
+  var ahora = new Date().toISOString();
+
+  var nuevo = {
     cells:S.cells,
     currency:S.currency,
     customDays:S.customDays,
     activeProducts:S.activeProducts,
     savedAt:new Date().toLocaleString('es-AR')
   };
+
   try{
-    var r=await fetch('https://api.jsonbin.io/v3/b/'+BIN_ID,{
-      method:'PUT',
-      headers:{'Content-Type':'application/json','X-Master-Key':API_KEY},
-      body:JSON.stringify(GLOBAL)
-    });
-    if(!r.ok)throw new Error('HTTP '+r.status);
-    setSyncStatus('ok','Guardado · '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}));
-    renderSidebar();
+    var rGet = await fetch('https://api.jsonbin.io/v3/b/'+BIN_ID+'/latest',{headers:{'X-Master-Key':API_KEY}});
+    var servidor = rGet.ok ? ((await rGet.json()).record || {}) : {};
+    var calServidor = (servidor.calendars||{})[key];
+
+    if(!calServidor){
+      nuevo.versionInicial = { fecha: ahora, usuario: user, role: role };
+      nuevo.historial = [];
+      await ejecutarGuardado(key, nuevo, servidor);
+      return;
+    }
+    if(!calServidor.versionInicial){
+      nuevo.versionInicial = { fecha: ahora, usuario: user, role: role };
+      nuevo.historial = calServidor.historial || [];
+      await ejecutarGuardado(key, nuevo, servidor);
+      return;
+    }
+
+    var cambios = diffCells(calServidor.cells, S.cells, GLOBAL.products, GLOBAL.campaigns);
+    if(!cambios.length){
+      // Nada cambió realmente — guardamos igual (por si cambió moneda/días) pero sin pedir firma
+      nuevo.versionInicial = calServidor.versionInicial;
+      nuevo.historial = calServidor.historial || [];
+      await ejecutarGuardado(key, nuevo, servidor);
+      return;
+    }
+
+    // Hay cambios reales sobre un calendario ya firmado antes: pedimos confirmación
+    _pendienteGuardado = { key: key, nuevo: nuevo, servidor: servidor, calServidor: calServidor, cambios: cambios, user: user, role: role, ahora: ahora };
+    abrirFirmaModal(cambios, user, role);
+    setSyncStatus('', '');
   }catch(e){
     setSyncStatus('error','Error al guardar');
     console.error(e);
   }
 }
 
-async function doSave(){
-  var btns=document.querySelectorAll('.save-btn');
-  btns.forEach(function(b){b.textContent='Guardando...';b.disabled=true;});
-  await syncSave();
-  btns.forEach(function(b){b.textContent='Guardado ✓';});
-  setTimeout(function(){btns.forEach(function(b){b.textContent='Guardar';b.disabled=false;});},2000);
+function abrirFirmaModal(cambios, user, role){
+  var box = document.getElementById('firma-modal-cambios');
+  box.innerHTML = cambios.map(function(c){
+    var color = c.accion==='agregada' ? '#1a6740' : c.accion==='eliminada' ? '#a83232' : '#8a6500';
+    var texto = c.accion==='agregada' ? '+ Día '+c.dia+' · '+c.producto+' → '+c.despues
+      : c.accion==='eliminada' ? '− Día '+c.dia+' · '+c.producto+' (era '+c.antes+')'
+      : '~ Día '+c.dia+' · '+c.producto+': '+c.antes+' → '+c.despues;
+    return '<div style="color:'+color+';margin-bottom:3px">'+texto+'</div>';
+  }).join('');
+  document.getElementById('firma-motivo').value='';
+  document.getElementById('firma-nombre').textContent = (user||'—')+' ('+roleLabel(role)+')';
+  document.getElementById('firma-modal-overlay').classList.add('open');
+}
+function cancelarFirma(){
+  document.getElementById('firma-modal-overlay').classList.remove('open');
+  _pendienteGuardado = null;
+  setSyncStatus('','Cambios sin guardar');
+}
+async function confirmarFirma(){
+  if(!_pendienteGuardado) return;
+  var p = _pendienteGuardado;
+  var motivo = document.getElementById('firma-motivo').value.trim();
+  p.nuevo.versionInicial = p.calServidor.versionInicial;
+  p.nuevo.historial = (p.calServidor.historial || []).slice();
+  p.nuevo.historial.push({ fecha: p.ahora, usuario: p.user, role: p.role, motivo: motivo, cambios: p.cambios });
+  document.getElementById('firma-modal-overlay').classList.remove('open');
+  await ejecutarGuardado(p.key, p.nuevo, p.servidor);
+  _pendienteGuardado = null;
+}
+
+async function ejecutarGuardado(key, nuevo, servidor){
+  setSyncStatus('saving','Guardando...');
+  try{
+    var calendariosFusionados = Object.assign({}, servidor.calendars || {});
+    calendariosFusionados[key] = nuevo;
+    GLOBAL.calendars = calendariosFusionados;
+
+    var merged = Object.assign({}, servidor, GLOBAL, { calendars: calendariosFusionados });
+
+    var r=await fetch('https://api.jsonbin.io/v3/b/'+BIN_ID,{
+      method:'PUT',
+      headers:{'Content-Type':'application/json','X-Master-Key':API_KEY},
+      body:JSON.stringify(merged)
+    });
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    setSyncStatus('ok','Guardado · '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}));
+    renderSidebar();
+    renderView();
+  }catch(e){
+    setSyncStatus('error','Error al guardar');
+    console.error(e);
+  }
 }
 
 function loadMonthIntoS(month,year){
@@ -397,7 +533,7 @@ function buildCalendar(){
   if(!S.activeProducts||!S.activeProducts.length) return buildProductSelector();
   var days=getDays(), stats=calcStats(), selCount=selectedCells.size;
 
-  var html='<div class="main-header"><h1 class="page-title">'+MONTHS[S.month]+' '+S.year+'</h1>'
+  var html='<div class="main-header"><h1 class="page-title">'+MONTHS[S.month]+' '+S.year+buildVersionBadgeInline()+'</h1>'
     +'<div class="header-actions">'
     +'<button class="btn" onclick="S.activeProducts=null;renderView()">⊙ Productos</button>'
     +'<button class="btn '+(bulkMode?'btn-dark':'')+'" onclick="toggleBulkMode()">'+(bulkMode?'✓ Masivo ON':'⊞ Masivo')+'</button>'
@@ -541,8 +677,23 @@ function assignCell(cid){ if(activeModal)S.cells[cellKey(activeModal.day,activeM
 function clearModalCell(){ if(activeModal)delete S.cells[cellKey(activeModal.day,activeModal.pid)]; closeModal(); renderView(); }
 document.getElementById('modal-overlay').onclick=function(e){ if(e.target===e.currentTarget)closeModal(); };
 document.getElementById('bulk-modal-overlay').onclick=function(e){ if(e.target===e.currentTarget)closeBulkModal(); };
+document.getElementById('firma-modal-overlay').onclick=function(e){ if(e.target===e.currentTarget)cancelarFirma(); };
 
 // SAVED CALENDARS
+function buildVersionBadgeInline(){
+  var key = calKey(S.month, S.year);
+  var cal = GLOBAL.calendars[key];
+  if(!cal) return '';
+  var historial = cal.historial || [];
+  if(historial.length){
+    return '<span style="display:inline-block;margin-left:10px;vertical-align:middle;padding:2px 10px;border-radius:20px;font-size:10px;font-weight:600;background:#fdf3e0;color:#8a6500;border:1px solid #f0dfa0">Modificado ×'+historial.length+'</span>';
+  }
+  if(cal.versionInicial){
+    return '<span style="display:inline-block;margin-left:10px;vertical-align:middle;padding:2px 10px;border-radius:20px;font-size:10px;font-weight:600;background:#eaf5ee;color:#1a6740;border:1px solid #bfe3cc">Original</span>';
+  }
+  return '';
+}
+
 function buildSaved(){
   var cals=GLOBAL.calendars;
   var keys=Object.keys(cals).sort(function(a,b){
@@ -559,16 +710,23 @@ function buildSaved(){
       var cal=cals[k];
       var cellCount=Object.keys(cal.cells||{}).length;
       var isCurrent=S.month===m&&S.year===y;
+      var historial=cal.historial||[];
+      var badge = historial.length
+        ? '<span style="display:inline-block;margin-top:4px;padding:2px 9px;border-radius:20px;font-size:9px;font-weight:600;background:#fdf3e0;color:#8a6500;border:1px solid #f0dfa0">Modificado ×'+historial.length+'</span>'
+        : '<span style="display:inline-block;margin-top:4px;padding:2px 9px;border-radius:20px;font-size:9px;font-weight:600;background:#eaf5ee;color:#1a6740;border:1px solid #bfe3cc">Original</span>';
       html+='<div style="background:var(--surface);border:1px solid '+(isCurrent?'var(--text)':'var(--border-light)')+';border-radius:var(--radius-lg);overflow:hidden">'
         +'<div style="padding:14px 18px;display:flex;align-items:center;gap:12px">'
         +'<div style="flex:1">'
         +'<div style="font-family:var(--serif);font-size:18px;font-weight:600">'+MONTHS[m]+' '+y+'</div>'
-        +'<div style="font-size:11px;color:var(--text-faint);margin-top:2px">'+cellCount+' activaciones · '+cal.savedAt+'</div>'
+        +'<div style="font-size:11px;color:var(--text-faint);margin-top:2px">'+cellCount+' activaciones · último guardado '+cal.savedAt+'</div>'
+        +badge
         +(isCurrent?'<div style="font-size:10px;color:#1a6740;margin-top:4px;font-weight:500">● Abierto ahora</div>':'')
         +'</div>'
+        +(historial.length?'<button class="btn btn-sm" onclick="toggleHistorial(\'hist-'+k+'\')" style="flex-shrink:0">Historial ▼</button>':'')
         +'<button class="btn btn-sm" onclick="toggleSavedPreview(\'prev-'+k+'\',\'arr-'+k+'\')" style="flex-shrink:0">Ver ▼</button>'
         +'<button class="btn btn-dark btn-sm" onclick="openSavedCal('+m+','+y+')" style="flex-shrink:0">Editar →</button>'
         +'</div>'
+        +(historial.length?'<div id="hist-'+k+'" style="display:none;border-top:1px solid var(--border-light);padding:12px 16px">'+buildHistorialList(historial)+'</div>':'')
         +'<div id="prev-'+k+'" style="display:none;border-top:1px solid var(--border-light);padding:12px 16px;overflow-x:auto">'
         +buildMiniCalendar(m,y,cal)
         +'</div>'
@@ -577,6 +735,39 @@ function buildSaved(){
     html+='</div>';
   }
   return html;
+}
+
+function toggleHistorial(id){
+  var el=document.getElementById(id);
+  if(!el)return;
+  el.style.display = el.style.display==='none' ? 'block' : 'none';
+}
+
+function roleLabel(role){
+  return role==='admin' ? 'Administrador' : role==='mkt' ? 'MKT' : role==='visitor' ? 'Visita' : '—';
+}
+
+function buildHistorialList(historial){
+  // Más reciente primero
+  var ordenado = historial.slice().reverse();
+  return '<div style="display:flex;flex-direction:column;gap:10px">'
+    +ordenado.map(function(h){
+      var fecha = new Date(h.fecha).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+      var cambios = h.cambios||[];
+      return '<div style="border:1px solid var(--border-light);border-radius:8px;padding:10px 12px">'
+        +'<div style="font-size:11px;font-weight:600">'+(h.usuario||'—')+' <span style="font-weight:400;color:var(--text-faint)">('+roleLabel(h.role)+')</span></div>'
+        +'<div style="font-size:10px;color:var(--text-faint);margin-bottom:8px">'+fecha+' · '+cambios.length+' cambio'+(cambios.length!==1?'s':'')+'</div>'
+        +'<div style="display:flex;flex-direction:column;gap:3px">'
+        +cambios.map(function(c){
+          var color = c.accion==='agregada' ? '#1a6740' : c.accion==='eliminada' ? '#a83232' : '#8a6500';
+          var texto = c.accion==='agregada' ? '+ Día '+c.dia+' · '+c.producto+' → '+c.despues
+            : c.accion==='eliminada' ? '− Día '+c.dia+' · '+c.producto+' (era '+c.antes+')'
+            : '~ Día '+c.dia+' · '+c.producto+': '+c.antes+' → '+c.despues;
+          return '<div style="font-size:10px;color:'+color+'">'+texto+'</div>';
+        }).join('')
+        +'</div></div>';
+    }).join('')
+    +'</div>';
 }
 
 function toggleSavedPreview(previewId, arrowId){
